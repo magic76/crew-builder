@@ -9,12 +9,20 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import android.webkit.JavascriptInterface
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.KeyStore
 import java.util.concurrent.Executors
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 class ForgeNativeBridge(
     private val activity: Activity,
@@ -25,6 +33,8 @@ class ForgeNativeBridge(
         private const val PREFS = "crew_builder_config"
         private const val LEGACY_PREFS = "crew_forge_config"
         private const val KEY_API_KEY = "gemini_api_key"
+        private const val KEY_ALIAS = "crew_builder_gemini_key"
+        private const val ENCRYPTED_PREFIX = "enc:"
         private const val MIC_REQUEST = 701
         private val FALLBACK_MODELS = listOf("gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview", "gemini-2.5-flash")
     }
@@ -35,7 +45,14 @@ class ForgeNativeBridge(
     init { migratePreferences() }
 
     @JavascriptInterface fun hasGeminiApiKey(): Boolean = getApiKey().isNotBlank()
-    @JavascriptInterface fun setGeminiApiKey(key: String?) { prefs().edit().putString(KEY_API_KEY, key.orEmpty().trim()).apply() }
+
+    @JavascriptInterface
+    fun setGeminiApiKey(key: String?) {
+        val value = key.orEmpty().trim()
+        if (value.isBlank()) prefs().edit().remove(KEY_API_KEY).apply()
+        else prefs().edit().putString(KEY_API_KEY, encrypt(value)).apply()
+    }
+
     @JavascriptInterface fun clearGeminiApiKey() { prefs().edit().remove(KEY_API_KEY).apply() }
 
     @JavascriptInterface
@@ -100,15 +117,61 @@ class ForgeNativeBridge(
 
     private fun prefs() = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    private fun getApiKey(): String = prefs().getString(KEY_API_KEY, "").orEmpty().trim()
+    private fun getApiKey(): String {
+        val stored = prefs().getString(KEY_API_KEY, "").orEmpty().trim()
+        if (stored.isBlank()) return ""
+        if (stored.startsWith(ENCRYPTED_PREFIX)) return decrypt(stored).orEmpty().trim()
+        return stored.also {
+            try { prefs().edit().putString(KEY_API_KEY, encrypt(it)).apply() } catch (_: Exception) {}
+        }
+    }
 
     private fun migratePreferences() {
         val current = prefs()
-        if (current.contains(KEY_API_KEY)) return
+        if (current.contains(KEY_API_KEY)) {
+            getApiKey()
+            return
+        }
         val legacy = activity.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
         val legacyKey = legacy.getString(KEY_API_KEY, "").orEmpty().trim()
-        if (legacyKey.isNotBlank()) current.edit().putString(KEY_API_KEY, legacyKey).apply()
+        if (legacyKey.isNotBlank()) setGeminiApiKey(legacyKey)
     }
+
+    private fun getOrCreateSecretKey(): SecretKey {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        generator.init(
+            KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .build()
+        )
+        return generator.generateKey()
+    }
+
+    private fun encrypt(value: String): String {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateSecretKey())
+        val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+        val payload = ByteArray(1 + cipher.iv.size + encrypted.size)
+        payload[0] = cipher.iv.size.toByte()
+        System.arraycopy(cipher.iv, 0, payload, 1, cipher.iv.size)
+        System.arraycopy(encrypted, 0, payload, 1 + cipher.iv.size, encrypted.size)
+        return ENCRYPTED_PREFIX + Base64.encodeToString(payload, Base64.NO_WRAP)
+    }
+
+    private fun decrypt(value: String): String? = try {
+        val payload = Base64.decode(value.removePrefix(ENCRYPTED_PREFIX), Base64.NO_WRAP)
+        val ivLength = payload.firstOrNull()?.toInt()?.and(0xFF) ?: return null
+        if (ivLength <= 0 || payload.size <= 1 + ivLength) return null
+        val iv = payload.copyOfRange(1, 1 + ivLength)
+        val encrypted = payload.copyOfRange(1 + ivLength, payload.size)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, getOrCreateSecretKey(), GCMParameterSpec(128, iv))
+        String(cipher.doFinal(encrypted), Charsets.UTF_8)
+    } catch (_: Exception) { null }
 
     @JavascriptInterface fun vibrate(durationMs: Long) {
         val duration = durationMs.coerceIn(1L, 2000L)
