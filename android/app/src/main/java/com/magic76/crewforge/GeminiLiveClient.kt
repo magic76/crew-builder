@@ -6,6 +6,7 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.util.Base64
+import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -19,6 +20,7 @@ import kotlin.concurrent.thread
 
 class GeminiLiveClient(private val onEvent: (String) -> Unit) {
     companion object {
+        private const val TAG = "CrewForgeLive"
         private const val MODEL = "models/gemini-3.1-flash-live-preview"
         private const val URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key="
         private const val SETUP_TIMEOUT_MS = 15_000L
@@ -40,6 +42,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
         val request = Request.Builder().url(URL + apiKey.trim()).build()
         socket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.i(TAG, "WebSocket opened; sending setup")
                 emit("connecting", "WebSocket open · sending setup")
                 val setup = JSONObject().apply {
                     put("model", MODEL)
@@ -82,11 +85,13 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) = handle(bytes.utf8())
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 val detail = response?.let { "HTTP ${it.code}: ${it.message}" }
+                Log.e(TAG, "WebSocket failure: ${detail ?: t.message ?: t.javaClass.simpleName}", t)
                 emit("error", detail ?: t.message ?: "Live connection failed")
                 stopAudio()
                 if (socket === webSocket) socket = null
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                Log.i(TAG, "WebSocket closed: code=$code reason=${reason.ifBlank { "none" }}")
                 stopAudio()
                 if (socket === webSocket) socket = null
                 emit("stopped", "Live closed ($code${if (reason.isNotBlank()) ": $reason" else ""})")
@@ -134,26 +139,69 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
                 if (mime.contains("audio") || mime.contains("pcm")) play(Base64.decode(inline.optString("data"), Base64.DEFAULT))
             }
             if (server.optBoolean("interrupted", false)) flushOutput()
-        } catch (_: Exception) {}
+        } catch (error: Exception) {
+            Log.e(TAG, "Failed to handle Live server message", error)
+        }
     }
 
     private fun startRecording() {
         if (recording) return
         val min = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        val record = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, 3200))
+        if (min <= 0) {
+            Log.e(TAG, "Microphone buffer size unavailable: $min")
+            emit("error", "Microphone is unavailable")
+            return
+        }
+        val record = try {
+            AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, 3200))
+        } catch (error: Exception) {
+            Log.e(TAG, "Microphone initialization failed", error)
+            emit("error", "Microphone could not start")
+            return
+        }
+        if (record.state != AudioRecord.STATE_INITIALIZED) {
+            Log.e(TAG, "Microphone is not initialized: state=${record.state}")
+            record.release()
+            emit("error", "Microphone could not start")
+            return
+        }
         recorder = record
         recording = true
-        record.startRecording()
+        try {
+            record.startRecording()
+        } catch (error: Exception) {
+            Log.e(TAG, "Microphone start failed", error)
+            recording = false
+            recorder = null
+            record.release()
+            emit("error", "Microphone could not start")
+            return
+        }
+        if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+            Log.e(TAG, "Microphone did not enter recording state: state=${record.recordingState}")
+            recording = false
+            recorder = null
+            record.release()
+            emit("error", "Microphone could not start")
+            return
+        }
+        Log.i(TAG, "Microphone recording started")
         thread(name = "forge-live-mic", isDaemon = true) {
             val buffer = ByteArray(3200)
             while (recording) {
                 val count = try { record.read(buffer, 0, buffer.size) } catch (_: Exception) { -1 }
                 if (count > 0) {
                     val data = Base64.encodeToString(buffer.copyOf(count), Base64.NO_WRAP)
-                    val blob = JSONObject().put("mimeType", "audio/pcm;rate=16000").put("data", data)
-                    socket?.send(JSONObject().put("realtimeInput", JSONObject().put("mediaChunks", JSONArray().put(blob))).toString())
+                    val audio = JSONObject().put("mimeType", "audio/pcm;rate=16000").put("data", data)
+                    if (socket?.send(JSONObject().put("realtimeInput", JSONObject().put("audio", audio)).toString()) == false) {
+                        Log.w(TAG, "Live socket rejected an audio chunk")
+                    }
+                } else if (count < 0) {
+                    Log.e(TAG, "Microphone read failed: $count")
+                    recording = false
                 }
             }
+            Log.i(TAG, "Microphone recording stopped")
         }
     }
 
@@ -167,6 +215,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
                 .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(24000).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
                 .setBufferSizeInBytes(maxOf(min, 24000)).setTransferMode(AudioTrack.MODE_STREAM).build()
             output.play(); track = output
+            Log.i(TAG, "Audio playback started")
         }
         output.write(pcm, 0, pcm.size)
     }
