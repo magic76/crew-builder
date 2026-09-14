@@ -12,6 +12,7 @@ import android.os.VibratorManager
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.util.Log
 import android.webkit.JavascriptInterface
 import org.json.JSONArray
 import org.json.JSONObject
@@ -30,14 +31,26 @@ class ForgeNativeBridge(
     private val onLiveEvent: (String) -> Unit
 ) {
     companion object {
+        private const val TAG = "CrewBuilder"
         private const val PREFS = "crew_builder_config"
         private const val LEGACY_PREFS = "crew_forge_config"
         private const val KEY_API_KEY = "gemini_api_key"
         private const val KEY_ALIAS = "crew_builder_gemini_key"
         private const val ENCRYPTED_PREFIX = "enc:"
         private const val MIC_REQUEST = 701
-        private val FALLBACK_MODELS = listOf("gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview", "gemini-2.5-flash")
+        private val FALLBACK_MODELS = listOf(
+            "gemini-3.6-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.5-flash",
+            "gemini-3.0-flash",
+            "gemini-3-flash",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash"
+        )
     }
+
+    private class GeminiHttpException(val statusCode: Int, detail: String) : IllegalStateException("HTTP $statusCode $detail")
 
     private val executor = Executors.newCachedThreadPool()
     private val live = GeminiLiveClient(onLiveEvent)
@@ -79,16 +92,40 @@ class ForgeNativeBridge(
             val models = mutableListOf<String>()
             if (requested.isNotEmpty() && requested != "auto") models.add(requested)
             FALLBACK_MODELS.forEach { if (!models.contains(it)) models.add(it) }
-            var lastError = "No Gemini model succeeded"
+            val failures = mutableListOf<String>()
             for (model in models) {
                 try {
-                    val text = callGemini(apiKey, model, prompt)
+                    val text = callGeminiWithRetry(apiKey, model, prompt)
                     if (text.isNotBlank()) { deliver(requestId, text, model, null); return@execute }
-                    lastError = "$model returned an empty response"
-                } catch (error: Exception) { lastError = "$model: ${error.message ?: error.javaClass.simpleName}" }
+                    failures.add("$model returned an empty response")
+                } catch (error: Exception) {
+                    val detail = "$model: ${compactError(error.message ?: error.javaClass.simpleName)}"
+                    failures.add(detail)
+                    Log.w(TAG, "Gemini model failed request=$requestId $detail")
+                    val status = (error as? GeminiHttpException)?.statusCode
+                    if (status == 401 || status == 403) break
+                }
             }
-            deliver(requestId, null, null, lastError)
+            deliver(requestId, null, null, summarizeFailures(failures))
         }
+    }
+
+    private fun callGeminiWithRetry(apiKey: String, model: String, prompt: String): String {
+        var lastError: Exception? = null
+        var attempt = 0
+        while (attempt < 2) {
+            try {
+                return callGemini(apiKey, model, prompt)
+            } catch (error: Exception) {
+                lastError = error
+                val status = (error as? GeminiHttpException)?.statusCode
+                val retryable = error is java.io.IOException || (status != null && status in 500..599)
+                if (!retryable || attempt == 1) break
+                Thread.sleep(800L)
+                attempt++
+            }
+        }
+        throw lastError ?: IllegalStateException("Gemini request failed")
     }
 
     private fun callGemini(apiKey: String, model: String, prompt: String): String {
@@ -97,13 +134,13 @@ class ForgeNativeBridge(
         }
         val payload = JSONObject().apply {
             put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", prompt)))))
-            put("generationConfig", JSONObject().put("maxOutputTokens", 32768))
+            put("generationConfig", JSONObject().put("maxOutputTokens", 8192))
         }
         try {
             connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val body = (if (status in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) throw IllegalStateException("HTTP $status ${body.take(240)}")
+            if (status !in 200..299) throw GeminiHttpException(status, compactError(body).take(360))
             val candidates = JSONObject(body).optJSONArray("candidates") ?: throw IllegalStateException("No candidates")
             val parts = candidates.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts") ?: throw IllegalStateException("No content parts")
             return buildString { for (i in 0 until parts.length()) append(parts.optJSONObject(i)?.optString("text").orEmpty()) }.trim()
@@ -114,6 +151,19 @@ class ForgeNativeBridge(
         val payload = JSONObject().put("requestId", requestId).put("text", text ?: JSONObject.NULL).put("model", model ?: JSONObject.NULL).put("error", error ?: JSONObject.NULL).toString()
         activity.runOnUiThread { onGeminiResult(payload) }
     }
+
+    private fun summarizeFailures(failures: List<String>): String {
+        if (failures.any { it.contains("HTTP 429") }) {
+            return "Gemini quota exceeded (HTTP 429). Wait for quota reset or use another API key."
+        }
+        if (failures.any { it.contains("HTTP 401") || it.contains("HTTP 403") }) {
+            return "Gemini API key rejected. Check the key permissions and billing."
+        }
+        if (failures.isEmpty()) return "No Gemini model succeeded"
+        return failures.take(3).joinToString("; ").take(900)
+    }
+
+    private fun compactError(value: String): String = value.replace(Regex("\\s+"), " ").trim()
 
     private fun prefs() = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
