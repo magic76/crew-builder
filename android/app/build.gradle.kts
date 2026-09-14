@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "com.magic76.crewforge"
     compileSdk = 35
+    buildToolsVersion = "35.0.0"
 
     defaultConfig {
         applicationId = "com.magic76.crewforge"

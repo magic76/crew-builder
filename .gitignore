@@ -1,0 +1,13 @@
+# Gradle and Android build output
+.gradle/
+**/.gradle/
+**/build/
+local.properties
+
+# Generated Forge web bundle copied into the Android app
+android/app/src/main/assets/forge/
+
+# IDE and local OS files
+.idea/
+*.iml
+.DS_Store
