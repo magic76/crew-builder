@@ -4,17 +4,24 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:fillColor="#243A8F" android:fillAlpha="0.72" android:pathData="M20,31L73,19A9,9 0,0 1,84 26L95,72A9,9 0,0 1,88 83L35,95A9,9 0,0 1,24 88L13,42A9,9 0,0 1,20 31Z" />
-    <group android:pivotX="54" android:pivotY="54" android:rotation="-7">
-        <path android:fillColor="#172444" android:pathData="M22,25H78A9,9 0,0 1,87 34V75A9,9 0,0 1,78 84H22A9,9 0,0 1,13 75V34A9,9 0,0 1,22 25Z" />
-        <path android:fillColor="#2A7DFF" android:pathData="M22,25H78A9,9 0,0 1,87 34V39H13V34A9,9 0,0 1,22 25Z" />
-        <path android:fillColor="#0A1022" android:pathData="M18,41H82V76A4,4 0,0 1,78 80H22A4,4 0,0 1,18 76Z" />
-        <path android:fillColor="#A7D8FF" android:pathData="M24,31A2.5,2.5 0,1 1,24 36A2.5,2.5 0,1 1,24 31M32,31A2.5,2.5 0,1 1,32 36A2.5,2.5 0,1 1,32 31M40,31A2.5,2.5 0,1 1,40 36A2.5,2.5 0,1 1,40 31" />
-        <path android:fillColor="#DFFBFF" android:pathData="M51,47L55,57L65,61L55,65L51,75L47,65L37,61L47,57Z" />
-        <path android:fillColor="#70D7FF" android:fillAlpha="0.72" android:pathData="M51,51L54,58L61,61L54,64L51,71L48,64L41,61L48,58Z" />
+    <!-- Adaptive icons may mask/crop aggressively. Keep the complete mark inside the central safe zone. -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.64"
+        android:scaleY="0.64">
+        <path android:fillColor="#243A8F" android:fillAlpha="0.72" android:pathData="M20,31L73,19A9,9 0,0 1,84 26L95,72A9,9 0,0 1,88 83L35,95A9,9 0,0 1,24 88L13,42A9,9 0,0 1,20 31Z" />
+        <group android:pivotX="54" android:pivotY="54" android:rotation="-7">
+            <path android:fillColor="#172444" android:pathData="M22,25H78A9,9 0,0 1,87 34V75A9,9 0,0 1,78 84H22A9,9 0,0 1,13 75V34A9,9 0,0 1,22 25Z" />
+            <path android:fillColor="#2A7DFF" android:pathData="M22,25H78A9,9 0,0 1,87 34V39H13V34A9,9 0,0 1,22 25Z" />
+            <path android:fillColor="#0A1022" android:pathData="M18,41H82V76A4,4 0,0 1,78 80H22A4,4 0,0 1,18 76Z" />
+            <path android:fillColor="#A7D8FF" android:pathData="M24,31A2.5,2.5 0,1 1,24 36A2.5,2.5 0,1 1,24 31M32,31A2.5,2.5 0,1 1,32 36A2.5,2.5 0,1 1,32 31M40,31A2.5,2.5 0,1 1,40 36A2.5,2.5 0,1 1,40 31" />
+            <path android:fillColor="#DFFBFF" android:pathData="M51,47L55,57L65,61L55,65L51,75L47,65L37,61L47,57Z" />
+            <path android:fillColor="#70D7FF" android:fillAlpha="0.72" android:pathData="M51,51L54,58L61,61L54,64L51,71L48,64L41,61L48,58Z" />
+        </group>
+        <path android:fillColor="#2FD5FF" android:pathData="M79,42L94,45A5,5 0,0 1,98 51L95,64A5,5 0,0 1,89 68L76,65A5,5 0,0 1,72 59L75,46A5,5 0,0 1,79 42Z" />
+        <path android:fillColor="#9B67FF" android:pathData="M72,68L86,66A5,5 0,0 1,92 70L94,82A5,5 0,0 1,90 88L76,90A5,5 0,0 1,70 86L68,74A5,5 0,0 1,72 68Z" />
+        <path android:fillColor="#6F7DFF" android:pathData="M91,72L99,73A3,3 0,0 1,102 77L101,84A3,3 0,0 1,97 87L90,86A3,3 0,0 1,87 82L88,75A3,3 0,0 1,91 72Z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M83,20L85,25L90,27L85,29L83,34L81,29L76,27L81,25Z" />
     </group>
-    <path android:fillColor="#2FD5FF" android:pathData="M79,42L94,45A5,5 0,0 1,98 51L95,64A5,5 0,0 1,89 68L76,65A5,5 0,0 1,72 59L75,46A5,5 0,0 1,79 42Z" />
-    <path android:fillColor="#9B67FF" android:pathData="M72,68L86,66A5,5 0,0 1,92 70L94,82A5,5 0,0 1,90 88L76,90A5,5 0,0 1,70 86L68,74A5,5 0,0 1,72 68Z" />
-    <path android:fillColor="#6F7DFF" android:pathData="M91,72L99,73A3,3 0,0 1,102 77L101,84A3,3 0,0 1,97 87L90,86A3,3 0,0 1,87 82L88,75A3,3 0,0 1,91 72Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M83,20L85,25L90,27L85,29L83,34L81,29L76,27L81,25Z" />
 </vector>
