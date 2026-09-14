@@ -162,16 +162,19 @@ class ForgeNativeBridge(
         return ENCRYPTED_PREFIX + Base64.encodeToString(payload, Base64.NO_WRAP)
     }
 
-    private fun decrypt(value: String): String? = try {
-        val payload = Base64.decode(value.removePrefix(ENCRYPTED_PREFIX), Base64.NO_WRAP)
-        val ivLength = payload.firstOrNull()?.toInt()?.and(0xFF) ?: return null
-        if (ivLength <= 0 || payload.size <= 1 + ivLength) return null
-        val iv = payload.copyOfRange(1, 1 + ivLength)
-        val encrypted = payload.copyOfRange(1 + ivLength, payload.size)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, getOrCreateSecretKey(), GCMParameterSpec(128, iv))
-        String(cipher.doFinal(encrypted), Charsets.UTF_8)
-    } catch (_: Exception) { null }
+    private fun decrypt(value: String): String? {
+        return try {
+            val payload = Base64.decode(value.removePrefix(ENCRYPTED_PREFIX), Base64.NO_WRAP)
+            if (payload.isEmpty()) return null
+            val ivLength = payload[0].toInt() and 0xFF
+            if (ivLength <= 0 || payload.size <= 1 + ivLength) return null
+            val iv = payload.copyOfRange(1, 1 + ivLength)
+            val encrypted = payload.copyOfRange(1 + ivLength, payload.size)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, getOrCreateSecretKey(), GCMParameterSpec(128, iv))
+            String(cipher.doFinal(encrypted), Charsets.UTF_8)
+        } catch (_: Exception) { null }
+    }
 
     @JavascriptInterface fun vibrate(durationMs: Long) {
         val duration = durationMs.coerceIn(1L, 2000L)
