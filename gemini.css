@@ -1,0 +1,19 @@
+.brand-copy { flex: 1; min-width: 0; }
+.settings-btn { margin-left: auto; flex: 0 0 auto; }
+.model-pill-row { display: flex; align-items: center; gap: 10px; margin: -8px 0 14px; }
+.model-pill {
+  min-height: 36px; border: 1px solid rgba(158,255,199,.22); border-radius: 999px;
+  padding: 0 12px; background: rgba(158,255,199,.08); color: #b9ffd5; cursor: pointer;
+  font-size: 11px; font-weight: 750;
+}
+.key-state { color: #ff9aaa; font-size: 11px; }
+.key-state.ready { color: #83eeb0; }
+.field-label { display: block; margin: 14px 0 7px; color: #c7cfdb; font-size: 12px; font-weight: 750; }
+.settings-field {
+  width: 100%; min-height: 48px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px;
+  background: #0b1018; color: #f7f8fb; padding: 0 13px; outline: none; font: inherit;
+}
+.settings-field:focus { border-color: rgba(158,255,199,.5); }
+.settings-help { margin: 7px 2px 0; color: #778397; font-size: 11px; line-height: 1.45; }
+.settings-actions { display: grid; grid-template-columns: 120px 1fr; gap: 10px; margin-top: 20px; }
+.toast.error { background: #ffe9ed; color: #5e1725; }
