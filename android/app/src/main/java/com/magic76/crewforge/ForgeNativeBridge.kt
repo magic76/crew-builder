@@ -1,4 +1,4 @@
-package com.magic76.crewforge
+package com.crewpocket.crewbuilder
 
 import android.Manifest
 import android.app.Activity
@@ -22,7 +22,8 @@ class ForgeNativeBridge(
     private val onLiveEvent: (String) -> Unit
 ) {
     companion object {
-        private const val PREFS = "crew_forge_config"
+        private const val PREFS = "crew_builder_config"
+        private const val LEGACY_PREFS = "crew_forge_config"
         private const val KEY_API_KEY = "gemini_api_key"
         private const val MIC_REQUEST = 701
         private val FALLBACK_MODELS = listOf("gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview", "gemini-2.5-flash")
@@ -31,9 +32,11 @@ class ForgeNativeBridge(
     private val executor = Executors.newCachedThreadPool()
     private val live = GeminiLiveClient(onLiveEvent)
 
+    init { migratePreferences() }
+
     @JavascriptInterface fun hasGeminiApiKey(): Boolean = getApiKey().isNotBlank()
-    @JavascriptInterface fun setGeminiApiKey(key: String?) { activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_API_KEY, key.orEmpty().trim()).apply() }
-    @JavascriptInterface fun clearGeminiApiKey() { activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_API_KEY).apply() }
+    @JavascriptInterface fun setGeminiApiKey(key: String?) { prefs().edit().putString(KEY_API_KEY, key.orEmpty().trim()).apply() }
+    @JavascriptInterface fun clearGeminiApiKey() { prefs().edit().remove(KEY_API_KEY).apply() }
 
     @JavascriptInterface
     fun startGeminiLive(appContext: String?) {
@@ -95,7 +98,17 @@ class ForgeNativeBridge(
         activity.runOnUiThread { onGeminiResult(payload) }
     }
 
-    private fun getApiKey(): String = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_API_KEY, "").orEmpty().trim()
+    private fun prefs() = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    private fun getApiKey(): String = prefs().getString(KEY_API_KEY, "").orEmpty().trim()
+
+    private fun migratePreferences() {
+        val current = prefs()
+        if (current.contains(KEY_API_KEY)) return
+        val legacy = activity.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+        val legacyKey = legacy.getString(KEY_API_KEY, "").orEmpty().trim()
+        if (legacyKey.isNotBlank()) current.edit().putString(KEY_API_KEY, legacyKey).apply()
+    }
 
     @JavascriptInterface fun vibrate(durationMs: Long) {
         val duration = durationMs.coerceIn(1L, 2000L)
