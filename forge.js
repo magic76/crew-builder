@@ -1,9 +1,13 @@
-const STORAGE_KEY = 'crew-forge.apps.v1';
-const LEGACY_STORAGE_KEY = 'crew-forge.apps.v0';
-const ACTIVE_KEY = 'crew-forge.active.v0';
-const RUNTIME_PREFIX = 'crew-forge.runtime.';
-const MODEL_KEY = 'crew-forge.gemini-model';
+const STORAGE_KEY = 'crew-builder.apps.v1';
+const LEGACY_STORAGE_KEYS = ['crew-forge.apps.v1', 'crew-forge.apps.v0'];
+const ACTIVE_KEY = 'crew-builder.active.v1';
+const LEGACY_ACTIVE_KEYS = ['crew-forge.active.v0'];
+const RUNTIME_PREFIX = 'crew-builder.runtime.';
+const LEGACY_RUNTIME_PREFIX = 'crew-forge.runtime.';
+const MODEL_KEY = 'crew-builder.gemini-model';
+const LEGACY_MODEL_KEY = 'crew-forge.gemini-model';
 const MAX_VERSIONS = 20;
+const MAX_HTML_BYTES = 500_000;
 
 const MODEL_LABELS = {
   auto: 'Auto',
@@ -36,6 +40,7 @@ const modelPill = el('modelPill');
 const keyState = el('keyState');
 const toast = el('toast');
 
+migrateLocalStorage();
 let apps = loadApps();
 let activeAppId = localStorage.getItem(ACTIVE_KEY) || null;
 let busy = false;
@@ -79,17 +84,31 @@ function bindUi() {
   window.addEventListener('message', handleRuntimeMessage);
 }
 
+function migrateLocalStorage() {
+  if (localStorage.getItem(STORAGE_KEY) == null) {
+    for (const key of LEGACY_STORAGE_KEYS) {
+      const value = localStorage.getItem(key);
+      if (value != null) { localStorage.setItem(STORAGE_KEY, value); break; }
+    }
+  }
+  if (localStorage.getItem(ACTIVE_KEY) == null) {
+    for (const key of LEGACY_ACTIVE_KEYS) {
+      const value = localStorage.getItem(key);
+      if (value != null) { localStorage.setItem(ACTIVE_KEY, value); break; }
+    }
+  }
+  if (localStorage.getItem(MODEL_KEY) == null && localStorage.getItem(LEGACY_MODEL_KEY) != null) {
+    localStorage.setItem(MODEL_KEY, localStorage.getItem(LEGACY_MODEL_KEY));
+  }
+}
+
 function loadApps() {
   try {
-    const current = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    if (Array.isArray(current)) return current;
-    const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || '[]');
-    if (Array.isArray(legacy)) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(legacy));
-      return legacy;
-    }
-  } catch (_) {}
-  return [];
+    const current = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    return Array.isArray(current) ? current : [];
+  } catch (_) {
+    return [];
+  }
 }
 
 function saveApps() { localStorage.setItem(STORAGE_KEY, JSON.stringify(apps)); }
@@ -97,7 +116,7 @@ function getActiveApp() { return apps.find((app) => app.id === activeAppId) || n
 function selectedModel() { return localStorage.getItem(MODEL_KEY) || 'auto'; }
 function createId() {
   if (crypto.randomUUID) return crypto.randomUUID();
-  return `forge_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `builder_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function refreshKeyState() {
@@ -155,7 +174,7 @@ function ensureGeminiReady() {
 function renderLibrary() {
   const sorted = [...apps].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   if (!sorted.length) {
-    libraryEl.innerHTML = `<div class="empty-card"><div class="empty-icon">◇</div><strong>No forged apps yet</strong><span>Your first mini app will appear here.</span></div>`;
+    libraryEl.innerHTML = `<div class="empty-card"><div class="empty-icon">◇</div><strong>No built apps yet</strong><span>Your first mini app will appear here.</span></div>`;
     return;
   }
   libraryEl.innerHTML = sorted.map((app) => `
@@ -185,7 +204,7 @@ function openApp(id) {
   localStorage.setItem(ACTIVE_KEY, id);
   homeView.hidden = true;
   appView.hidden = false;
-  appTitle.textContent = app.name || 'Crew Forge';
+  appTitle.textContent = app.name || 'Crew Builder';
   undoBtn.disabled = !app.versions || app.versions.length < 2;
   renderPreview(app);
 }
@@ -202,7 +221,7 @@ function closeModify() { modifySheet.hidden = true; }
 async function createApp(rawPrompt) {
   const request = String(rawPrompt || '').trim();
   if (!request || busy || !ensureGeminiReady()) return;
-  setBusy(true, 'Forging your app', 'Gemini is building the first version…');
+  setBusy(true, 'Building your app', 'Gemini is building the first version…');
   const app = {
     id: createId(), name: deriveName(request), icon: '✦', summary: request, originalPrompt: request,
     model: selectedModel(), html: '', versions: [], createdAt: Date.now(), updatedAt: Date.now()
@@ -215,12 +234,12 @@ async function createApp(rawPrompt) {
     applyForgeResult(app, result, request);
     promptInput.value = '';
     openApp(app.id);
-    showToast(`App forged · ${shortModel(result.model)}`);
+    showToast(`App built · ${shortModel(result.model)}`);
   } catch (error) {
     apps = apps.filter((item) => item.id !== app.id);
     saveApps();
     activeAppId = null;
-    showToast(error.message || 'Forge failed', true);
+    showToast(error.message || 'Build failed', true);
   } finally { setBusy(false); }
 }
 
@@ -242,7 +261,50 @@ async function modifyApp(rawRequest) {
 }
 
 async function runForgeTurn(prompt, model) {
-  return window.CrewAI.generate(prompt, model || 'auto');
+  const first = await window.CrewAI.generate(prompt, model || 'auto');
+  const firstHtml = extractHtml(first.text);
+  const issues = validateGeneratedHtml(firstHtml);
+  if (!issues.length) return first;
+
+  setBusy(true, 'Repairing generated app', issues[0]);
+  const repair = await window.CrewAI.generate(buildRepairPrompt(firstHtml || first.text, issues), first.model || model || 'auto');
+  const repairedHtml = extractHtml(repair.text);
+  const remaining = validateGeneratedHtml(repairedHtml);
+  if (remaining.length) throw new Error(`Generated app failed validation: ${remaining[0]}`);
+  return repair;
+}
+
+function validateGeneratedHtml(html) {
+  const issues = [];
+  const value = String(html || '').trim();
+  if (!value) return ['No complete HTML document was returned'];
+  if (value.length > MAX_HTML_BYTES) issues.push('Generated HTML is too large');
+  if (!/<html[\s>]/i.test(value) || !/<\/html>/i.test(value)) issues.push('Missing complete <html> document');
+  if (!/<title[\s>][\s\S]*?<\/title>/i.test(value)) issues.push('Missing <title>');
+
+  const forbidden = [
+    [/<script[^>]+src\s*=/i, 'External scripts are not allowed'],
+    [/<link[^>]+(?:stylesheet|preload|modulepreload)/i, 'External styles/resources are not allowed'],
+    [/\bfetch\s*\(/i, 'Network fetch is not allowed'],
+    [/\bXMLHttpRequest\b/i, 'XMLHttpRequest is not allowed'],
+    [/\bWebSocket\b/i, 'WebSocket is not allowed'],
+    [/\blocalStorage\b|\bsessionStorage\b/i, 'Use crew.storage instead of browser storage'],
+    [/\beval\s*\(|\bnew\s+Function\s*\(/i, 'Dynamic code execution is not allowed'],
+    [/\b(?:window\.)?(?:parent|top)\b/i, 'Parent/top access is not allowed']
+  ];
+  forbidden.forEach(([pattern, message]) => { if (pattern.test(value)) issues.push(message); });
+
+  try {
+    const doc = new DOMParser().parseFromString(value, 'text/html');
+    const parserError = doc.querySelector('parsererror');
+    if (parserError) issues.push('HTML parser error');
+    doc.querySelectorAll('script:not([src])').forEach((script) => {
+      try { new Function(script.textContent || ''); } catch (error) { issues.push(`JavaScript syntax error: ${error.message}`); }
+    });
+  } catch (error) {
+    issues.push(`Could not validate HTML: ${error.message}`);
+  }
+  return [...new Set(issues)].slice(0, 8);
 }
 
 function applyForgeResult(app, result, request) {
@@ -325,7 +387,12 @@ async function handleRuntimeMessage(event) {
   const respond = (value, error = null) => event.source?.postMessage({ __crewForge: true, type: 'response', id: msg.id, value, error }, '*');
   try {
     const key = `${RUNTIME_PREFIX}${msg.appId}`;
-    const state = readJson(key, {});
+    const legacyKey = `${LEGACY_RUNTIME_PREFIX}${msg.appId}`;
+    let state = readJson(key, null);
+    if (!state) {
+      state = readJson(legacyKey, {});
+      if (Object.keys(state).length) localStorage.setItem(key, JSON.stringify(state));
+    }
     const payload = msg.payload || {};
     if (msg.method === 'storage.get') {
       respond(Object.prototype.hasOwnProperty.call(state, payload.key) ? state[payload.key] : payload.fallback);
@@ -350,11 +417,15 @@ async function handleRuntimeMessage(event) {
 window.handleRuntimeMessage = handleRuntimeMessage;
 
 function buildCreatePrompt(request) {
-  return `You are Crew Forge, a consumer AI mini-app builder. Build one polished, immediately usable mobile mini app for this request:\n\nUSER REQUEST:\n${request}\n\nOUTPUT CONTRACT:\n- Return one COMPLETE self-contained HTML document inside exactly one \`\`\`html fenced block.\n- Use inline CSS and JavaScript only. No external libraries, fonts, images, APIs, network requests, downloads, eval(), or dynamic script loading.\n- Mobile-first. Touch targets >= 44px. Make it feel like a real product, not a demo.\n- Do not create login, password, credential, payment, financial trading, medical diagnosis, or other sensitive-data collection flows.\n- Do NOT use localStorage/sessionStorage directly. Persistent state uses await crew.storage.get(key, fallback), await crew.storage.set(key, value), await crew.storage.remove(key), await crew.storage.all().\n- Optional helpers: await crew.vibrate(pattern), await crew.share({ title, text, url }).\n- Do not access parent/top DOM. Do not navigate.\n- Include a meaningful <title>.\n- Handle empty/error states.\n- Prefer simple, reliable interactions over ambitious features.`;
+  return `You are Crew Builder, a consumer AI mini-app builder. Build one polished, immediately usable mobile mini app for this request:\n\nUSER REQUEST:\n${request}\n\nOUTPUT CONTRACT:\n- Return one COMPLETE self-contained HTML document inside exactly one \`\`\`html fenced block.\n- Use inline CSS and JavaScript only. No external libraries, fonts, images, APIs, network requests, downloads, eval(), or dynamic script loading.\n- Mobile-first. Touch targets >= 44px. Make it feel like a real product, not a demo.\n- Do not create login, password, credential, payment, financial trading, medical diagnosis, or other sensitive-data collection flows.\n- Do NOT use localStorage/sessionStorage directly. Persistent state uses await crew.storage.get(key, fallback), await crew.storage.set(key, value), await crew.storage.remove(key), await crew.storage.all().\n- Optional helpers: await crew.vibrate(pattern), await crew.share({ title, text, url }).\n- Do not access parent/top DOM. Do not navigate.\n- Include a meaningful <title>.\n- Handle empty/error states.\n- Prefer simple, reliable interactions over ambitious features.\n\nLIVE VOICE CONTRACT:\n- Every interactive app MUST register semantic voice actions after initialization with crew.live.registerActions(actions, handler).\n- Actions must describe user intent, not screen coordinates. Example names: add_score, reset_game, start_timer, set_duration, add_item, remove_item.\n- Each action object must include name, description, and a simple parameters object describing expected arguments.\n- The handler receives (name, args), performs the same state change as the UI, updates the rendered UI, persists when needed, and returns a small useful result.\n- Call crew.live.updateState(state) after initial load and whenever meaningful app state changes. Keep state compact and factual so voice can answer questions such as who is leading or how much time remains.\n- Do not expose destructive or sensitive actions without a clear user-facing UI equivalent.`;
 }
 
 function buildModifyPrompt(request, app) {
-  return `You are Crew Forge. Modify the mini app below according to the user's change.\n\nUSER CHANGE:\n${request}\n\nCURRENT APP (authoritative — this may be an older version after Undo):\n---BEGIN CURRENT HTML---\n${app.html}\n---END CURRENT HTML---\n\nRULES:\n- Preserve existing behavior, visual identity, and user data unless the request requires changing them.\n- Make the smallest coherent change that fully satisfies the request.\n- Return the UPDATED COMPLETE self-contained HTML document inside exactly one \`\`\`html fenced block.\n- Never return a diff or partial snippet.\n- Keep using crew.storage instead of localStorage/sessionStorage.\n- No external libraries, network requests, downloads, eval(), dynamic script loading, credential collection, or top/parent DOM access.`;
+  return `You are Crew Builder. Modify the mini app below according to the user's change.\n\nUSER CHANGE:\n${request}\n\nCURRENT APP (authoritative — this may be an older version after Undo):\n---BEGIN CURRENT HTML---\n${app.html}\n---END CURRENT HTML---\n\nRULES:\n- Preserve existing behavior, visual identity, user data, semantic Live actions, and Live state reporting unless the request requires changing them.\n- If this older app does not yet use crew.live.registerActions and crew.live.updateState, add a compact semantic Live contract for its important interactions.\n- Make the smallest coherent change that fully satisfies the request.\n- Return the UPDATED COMPLETE self-contained HTML document inside exactly one \`\`\`html fenced block.\n- Never return a diff or partial snippet.\n- Keep using crew.storage instead of localStorage/sessionStorage.\n- No external libraries, network requests, downloads, eval(), dynamic script loading, credential collection, or top/parent DOM access.`;
+}
+
+function buildRepairPrompt(htmlOrText, issues) {
+  return `You are Crew Builder's repair pass. Fix ONLY the deterministic runtime/contract problems below while preserving the intended app behavior and appearance.\n\nVALIDATION ISSUES:\n${issues.map((issue) => `- ${issue}`).join('\n')}\n\nCURRENT OUTPUT:\n---BEGIN OUTPUT---\n${String(htmlOrText || '').slice(0, MAX_HTML_BYTES)}\n---END OUTPUT---\n\nReturn one corrected COMPLETE self-contained HTML document inside exactly one \`\`\`html fenced block. Do not explain. Keep the app offline and sandbox-safe. Use crew.storage instead of browser storage. Preserve or add semantic crew.live.registerActions(...) and crew.live.updateState(...) support.`;
 }
 
 function extractHtml(text) {
@@ -378,8 +449,12 @@ function shortModel(model) {
   return MODEL_LABELS[model] || String(model).replace(/^gemini-/, 'Gemini ');
 }
 function readJson(key, fallback) {
-  try { const value = JSON.parse(localStorage.getItem(key)); return value && typeof value === 'object' ? value : fallback; }
-  catch (_) { return fallback; }
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return fallback;
+    const value = JSON.parse(raw);
+    return value && typeof value === 'object' ? value : fallback;
+  } catch (_) { return fallback; }
 }
 function setBusy(value, title = '', detail = '') {
   busy = value;
