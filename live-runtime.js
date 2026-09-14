@@ -1,11 +1,13 @@
 (() => {
   const STYLE_KEY = 'crew-forge.live-style';
   const LANGUAGE_KEY = 'crew-forge.live-language';
+  const UI_LANGUAGE_KEY = 'crew-builder.ui-language';
   const liveBtn = document.getElementById('liveBtn');
   const liveLabel = document.getElementById('liveLabel');
   const styleSelect = document.getElementById('liveStyleSelect');
   const languageSelect = document.getElementById('liveLanguageSelect');
   const preview = document.getElementById('preview');
+  const backBtn = document.getElementById('backBtn');
   const actionRegistry = new Map();
   const pendingActions = new Map();
   const describeWaiters = [];
@@ -17,12 +19,20 @@
   styleSelect?.addEventListener('change', () => localStorage.setItem(STYLE_KEY, styleSelect.value || 'concise'));
   languageSelect?.addEventListener('change', () => localStorage.setItem(LANGUAGE_KEY, languageSelect.value || 'auto'));
 
+  const uiZh = () => (localStorage.getItem(UI_LANGUAGE_KEY) || 'zh-TW') === 'zh-TW';
+  const liveText = (state) => state === 'ready' ? (uiZh() ? '聆聽中' : 'Listening') : state === 'connecting' ? (uiZh() ? '連線中' : 'Connecting') : 'Live';
   const setState = (state, message) => {
     liveState = state;
     liveBtn?.classList.toggle('active', state === 'ready');
     liveBtn?.classList.toggle('connecting', state === 'connecting');
-    if (liveLabel) liveLabel.textContent = state === 'ready' ? 'Listening' : state === 'connecting' ? 'Connecting' : 'Live';
+    if (liveLabel) liveLabel.textContent = liveText(state);
     if (message && window.showToast) window.showToast(message, state === 'error');
+  };
+
+  const stopLive = () => {
+    if (liveState === 'stopped') return;
+    try { window.CrewNative?.stopGeminiLive?.(); } catch (_) {}
+    setState('stopped');
   };
 
   const app = () => window.getActiveApp?.();
@@ -58,15 +68,18 @@
   liveBtn?.addEventListener('click', async () => {
     if (!window.CrewNative?.startGeminiLive) return window.showToast?.('Live requires the Android app', true);
     if (liveState === 'ready' || liveState === 'connecting') {
-      window.CrewNative.stopGeminiLive();
-      setState('stopped');
+      stopLive();
       return;
     }
     if (!window.CrewAI?.hasApiKey?.()) return window.openSettings?.();
-    setState('connecting', 'Reading app controls…');
+    setState('connecting', uiZh() ? '正在讀取頁面控制項…' : 'Reading app controls…');
     await freshActions();
     window.CrewNative.startGeminiLive(context());
   });
+
+  backBtn?.addEventListener('click', stopLive, true);
+  window.addEventListener('pagehide', stopLive);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stopLive(); });
 
   window.addEventListener('message', (event) => {
     if (event.source !== preview?.contentWindow) return;
@@ -127,8 +140,7 @@
       const request = String(event.args?.request || '').trim();
       if (request && window.modifyApp) {
         window.CrewNative.respondGeminiLive(event.id, event.name, JSON.stringify({ ok: true, status: 'builder_started' }));
-        window.CrewNative.stopGeminiLive();
-        setState('stopped');
+        stopLive();
         await window.modifyApp(request);
         return;
       }
