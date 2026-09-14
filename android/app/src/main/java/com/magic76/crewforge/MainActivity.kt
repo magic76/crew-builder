@@ -15,7 +15,6 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         webView = WebView(this).apply {
-            id = android.R.id.content
             setBackgroundColor(android.graphics.Color.rgb(9, 12, 18))
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -44,11 +43,13 @@ class MainActivity : Activity() {
     private fun loadForge() {
         val html = assets.open("forge/index.html").bufferedReader().use { it.readText() }
         val css = assets.open("forge/forge.css").bufferedReader().use { it.readText() }
+        val geminiCss = assets.open("forge/gemini.css").bufferedReader().use { it.readText() }
         val js = assets.open("forge/forge.js").bufferedReader().use { it.readText() }
         val nativeAdapter = assets.open("forge/native-adapter.js").bufferedReader().use { it.readText() }
 
         val bundled = html
             .replace("<link rel=\"stylesheet\" href=\"./forge.css\" />", "<style>$css</style>")
+            .replace("<link rel=\"stylesheet\" href=\"./gemini.css\" />", "<style>$geminiCss</style>")
             .replace("<script src=\"./forge.js\"></script>", "<script>$js</script>")
             .replace("<script src=\"./native-adapter.js\"></script>", "<script>$nativeAdapter</script>")
 
