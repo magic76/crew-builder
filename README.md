@@ -13,30 +13,67 @@ Crew Forge turns a natural-language request into a runnable mini app, then lets 
 5. `Modify` continues the same AI conversation so changes apply to the existing app.
 6. Each accepted result becomes a local version and can be undone.
 
-## Architecture
+## Android V0
 
-Crew Forge is the product UI and runtime. It intentionally does **not** duplicate Crew Pocket's provider/session infrastructure.
+Crew Forge now has an Android shell under `android/`.
+
+The APK does **not** generate Kotlin for each mini app. The native shell hosts the existing Forge web runtime in a WebView, while generated apps remain HTML/CSS/JS.
 
 ```text
-Crew Forge
-  ├─ App Library
-  ├─ Generated App Runtime
-  ├─ Version / Undo
-  └─ Modify UI
+Crew Forge APK
+  ├─ Android WebView shell
+  ├─ Forge UI / library / versions
+  ├─ Native bridge
+  │    ├─ vibration
+  │    └─ share
+  └─ Generated app sandbox
+        │
+        ▼
+http://127.0.0.1:8000/api/*
         │
         ▼
 Crew Pocket backend
-  └─ POST /api/chat
         │
         ▼
 Codex / Antigravity / other providers
 ```
 
-By default the frontend expects the Crew Pocket API to be available at the same origin. The next integration step is to make the backend origin configurable so Crew Forge can run as a completely separate shell while still using Crew Pocket as its AI service.
+The WebView loads bundled Forge HTML using `http://127.0.0.1:8000/` as its base URL. This keeps `/api/chat` same-origin with Crew Pocket and preserves the existing SSE streaming transport without adding a second backend.
+
+### Build
+
+Crew Pocket must be running locally on the Android device at `127.0.0.1:8000`.
+
+From the repo root:
+
+```bash
+gradle :app:assembleDebug
+```
+
+The APK is written to:
+
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+GitHub Actions also builds and uploads a `crew-forge-debug` artifact on pushes and pull requests.
+
+## Single-source web runtime
+
+The root files are the source of truth:
+
+```text
+index.html
+forge.css
+forge.js
+native-adapter.js
+```
+
+Before Android builds, Gradle copies these files into `android/app/src/main/assets/forge/`. Do not manually maintain a second copy of the UI.
 
 ## Runtime bridge
 
-Generated apps do not receive same-origin access to Crew Forge. Small capabilities are exposed through a narrow bridge:
+Generated apps are sandboxed. Capabilities are exposed through a narrow API:
 
 ```js
 await crew.storage.get(key, fallback)
@@ -48,16 +85,19 @@ await crew.vibrate(pattern)
 await crew.share({ title, text, url })
 ```
 
+Browser builds use browser APIs where available. Inside the Android APK, `native-adapter.js` routes vibration and sharing through `CrewNative`.
+
 Runtime state is scoped per generated app and survives code revisions.
 
-## V0 limitations
+## Current V0 limitations
 
-- Generated app metadata, HTML, versions, and runtime state currently live in browser `localStorage`.
+- Crew Pocket must already be running on the same Android device.
+- Generated app metadata, HTML, versions, and runtime state currently live in WebView `localStorage`.
 - No cloud sync or import/export yet.
 - Runtime capabilities are intentionally small: storage, vibration, and share.
-- The frontend currently expects Crew Pocket API routes on the same origin.
 - Generated apps are HTML/CSS/JS only; no dynamic native code generation.
+- Android V0 is portrait-only.
 
-## Development direction
+## Product goal
 
-The immediate goal is to validate one question: does the loop of **describe → use → modify → reuse** feel useful enough that people start creating small one-off software instead of searching for an existing app?
+The immediate question is whether **describe → use → modify → reuse** feels useful enough that people start creating small one-off software instead of searching for an existing app.
