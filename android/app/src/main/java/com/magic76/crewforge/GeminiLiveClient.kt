@@ -21,20 +21,26 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
     companion object {
         private const val MODEL = "models/gemini-3.1-flash-live-preview"
         private const val URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key="
+        private const val SETUP_TIMEOUT_MS = 15_000L
     }
 
-    private val client = OkHttpClient.Builder().readTimeout(0, TimeUnit.MILLISECONDS).pingInterval(10, TimeUnit.SECONDS).build()
+    private val client = OkHttpClient.Builder()
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
     @Volatile private var socket: WebSocket? = null
     @Volatile private var recording = false
+    @Volatile private var setupComplete = false
     private var recorder: AudioRecord? = null
     private var track: AudioTrack? = null
 
     fun start(apiKey: String, appContext: String) {
         stop()
-        emit("connecting")
+        setupComplete = false
+        emit("connecting", "Opening Gemini Live connection")
         val request = Request.Builder().url(URL + apiKey.trim()).build()
         socket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                emit("connecting", "WebSocket open · sending setup")
                 val setup = JSONObject().apply {
                     put("model", MODEL)
                     put("generationConfig", JSONObject().apply {
@@ -57,22 +63,39 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
                             put("required", JSONArray().put("request"))
                         })))))
                 }
-                webSocket.send(JSONObject().put("setup", setup).toString())
+                if (!webSocket.send(JSONObject().put("setup", setup).toString())) {
+                    emit("error", "Could not send Gemini Live setup")
+                    webSocket.cancel()
+                    return
+                }
+                emit("connecting", "Setup sent · waiting for Gemini")
+                thread(name = "forge-live-setup-timeout", isDaemon = true) {
+                    Thread.sleep(SETUP_TIMEOUT_MS)
+                    if (socket === webSocket && !setupComplete) {
+                        emit("error", "Gemini Live setup timed out")
+                        webSocket.cancel()
+                    }
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) = handle(text)
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) = handle(bytes.utf8())
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                emit("error", t.message ?: "Live connection failed")
+                val detail = response?.let { "HTTP ${it.code}: ${it.message}" }
+                emit("error", detail ?: t.message ?: "Live connection failed")
                 stopAudio()
+                if (socket === webSocket) socket = null
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                stopAudio(); emit("stopped")
+                stopAudio()
+                if (socket === webSocket) socket = null
+                emit("stopped", "Live closed ($code${if (reason.isNotBlank()) ": $reason" else ""})")
             }
         })
     }
 
     fun stop() {
+        setupComplete = false
         recording = false
         stopAudio()
         socket?.close(1000, "user stopped")
@@ -89,7 +112,8 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
         try {
             val root = JSONObject(text)
             if (root.has("setupComplete") || root.has("setup_complete")) {
-                emit("ready")
+                setupComplete = true
+                emit("ready", "Gemini Live ready · listening")
                 startRecording()
                 return
             }
