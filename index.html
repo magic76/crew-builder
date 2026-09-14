@@ -11,128 +11,33 @@
 <body>
   <main id="homeView" class="shell">
     <section class="hero">
-      <div class="brand-row">
-        <div class="brand-mark">✦</div>
-        <div class="brand-copy">
-          <div class="eyebrow">CREW FORGE</div>
-          <h1>Describe it.<br />Use it. Change it.</h1>
-        </div>
-        <button id="settingsBtn" class="icon-btn settings-btn" aria-label="Settings">⚙</button>
-      </div>
+      <div class="brand-row"><div class="brand-mark">✦</div><div class="brand-copy"><div class="eyebrow">CREW FORGE</div><h1>Describe it.<br />Use it. Change it.</h1></div><button id="settingsBtn" class="icon-btn settings-btn" aria-label="Settings">⚙</button></div>
       <p class="hero-copy">Turn a small need into a working mini app. Powered directly by Gemini.</p>
-
-      <div class="model-pill-row">
-        <button id="modelPill" class="model-pill">Gemini · Auto</button>
-        <span id="keyState" class="key-state">API key required</span>
-      </div>
-
-      <div class="forge-box">
-        <textarea id="promptInput" rows="4" placeholder="What do you need right now?&#10;Example: Make a scoreboard for two kids. First to 10 wins."></textarea>
-        <div class="forge-actions">
-          <span>⌘ / Ctrl + Enter</span>
-          <button id="forgeBtn" class="primary-btn">Forge app <b>→</b></button>
-        </div>
-      </div>
-
+      <div class="model-pill-row"><button id="modelPill" class="model-pill">Gemini · Auto</button><span id="keyState" class="key-state">API key required</span></div>
+      <div class="forge-box"><textarea id="promptInput" rows="4" placeholder="What do you need right now?&#10;Example: Make a scoreboard for two kids. First to 10 wins."></textarea><div class="forge-actions"><span>⌘ / Ctrl + Enter</span><button id="forgeBtn" class="primary-btn">Forge app <b>→</b></button></div></div>
       <div class="starter-row" aria-label="Starter ideas">
         <button data-starter="Make a simple scoreboard for two kids. Let me rename both players. First to 10 wins, vibrate on every point, celebrate the winner, and remember the score.">Kids scoreboard</button>
         <button data-starter="Make a fast decision wheel. I can add and remove choices, spin it, and it remembers my choices.">Decision wheel</button>
         <button data-starter="Make a focused presentation timer for a 15 minute talk with checkpoints at 5, 10, and 14 minutes.">Talk timer</button>
       </div>
     </section>
-
-    <section class="library-section">
-      <div class="section-heading">
-        <div>
-          <div class="eyebrow">YOUR APPS</div>
-          <h2>Recently forged</h2>
-        </div>
-        <span>Stored on this device</span>
-      </div>
-      <div id="library" class="library"></div>
-    </section>
+    <section class="library-section"><div class="section-heading"><div><div class="eyebrow">YOUR APPS</div><h2>Recently forged</h2></div><span>Stored on this device</span></div><div id="library" class="library"></div></section>
   </main>
 
   <main id="appView" class="app-shell" hidden>
-    <header class="app-bar">
-      <button id="backBtn" class="icon-btn" aria-label="Back">←</button>
-      <div class="app-title-wrap">
-        <div class="eyebrow">CREW FORGE</div>
-        <strong id="appTitle">App</strong>
-      </div>
-      <button id="versionBtn" class="icon-btn" aria-label="Version">•••</button>
-    </header>
-
-    <section class="preview-frame">
-      <iframe id="preview" title="Generated app preview" sandbox="allow-scripts allow-forms allow-modals"></iframe>
-    </section>
-
-    <nav class="forge-toolbar">
-      <button id="undoBtn" class="toolbar-btn">↶ <span>Undo</span></button>
-      <button id="modifyOpenBtn" class="modify-open-btn">✦ Modify</button>
-    </nav>
+    <header class="app-bar"><button id="backBtn" class="icon-btn" aria-label="Back">←</button><div class="app-title-wrap"><div class="eyebrow">CREW FORGE</div><strong id="appTitle">App</strong></div><button id="versionBtn" class="icon-btn" aria-label="Version">•••</button></header>
+    <section class="preview-frame"><iframe id="preview" title="Generated app preview" sandbox="allow-scripts allow-forms allow-modals"></iframe></section>
+    <nav class="forge-toolbar live-toolbar"><button id="undoBtn" class="toolbar-btn">↶ <span>Undo</span></button><button id="liveBtn" class="live-btn"><span class="live-dot"></span><span id="liveLabel">Live</span></button><button id="modifyOpenBtn" class="modify-open-btn">✦ Modify</button></nav>
   </main>
 
-  <div id="modifySheet" class="sheet-backdrop" hidden>
-    <section class="sheet" role="dialog" aria-modal="true" aria-label="Modify app">
-      <div class="sheet-handle"></div>
-      <div class="sheet-title-row">
-        <div>
-          <div class="eyebrow">MODIFY</div>
-          <h2>What should change?</h2>
-        </div>
-        <button id="modifyCloseBtn" class="icon-btn">×</button>
-      </div>
-      <textarea id="modifyInput" rows="4" placeholder="Example: Make the buttons bigger and add fireworks when someone reaches 10."></textarea>
-      <button id="modifyBtn" class="primary-btn wide">Apply changes <b>→</b></button>
-    </section>
-  </div>
+  <div id="modifySheet" class="sheet-backdrop" hidden><section class="sheet" role="dialog" aria-modal="true" aria-label="Modify app"><div class="sheet-handle"></div><div class="sheet-title-row"><div><div class="eyebrow">MODIFY</div><h2>What should change?</h2></div><button id="modifyCloseBtn" class="icon-btn">×</button></div><textarea id="modifyInput" rows="4" placeholder="Example: Make the buttons bigger and add fireworks when someone reaches 10."></textarea><button id="modifyBtn" class="primary-btn wide">Apply changes <b>→</b></button></section></div>
 
-  <div id="settingsSheet" class="sheet-backdrop" hidden>
-    <section class="sheet" role="dialog" aria-modal="true" aria-label="Gemini settings">
-      <div class="sheet-handle"></div>
-      <div class="sheet-title-row">
-        <div>
-          <div class="eyebrow">GEMINI</div>
-          <h2>Builder settings</h2>
-        </div>
-        <button id="settingsCloseBtn" class="icon-btn">×</button>
-      </div>
+  <div id="settingsSheet" class="sheet-backdrop" hidden><section class="sheet" role="dialog" aria-modal="true" aria-label="Gemini settings"><div class="sheet-handle"></div><div class="sheet-title-row"><div><div class="eyebrow">GEMINI</div><h2>Builder settings</h2></div><button id="settingsCloseBtn" class="icon-btn">×</button></div><label class="field-label" for="modelSelect">Preferred model</label><select id="modelSelect" class="settings-field"><option value="auto">Auto · 3.6 Flash first</option><option value="gemini-3.6-flash">Gemini 3.6 Flash</option><option value="gemini-3.5-flash">Gemini 3.5 Flash</option><option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option><option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option></select><p class="settings-help">If the preferred model fails, Forge automatically tries compatible Gemini fallback models.</p><label class="field-label" for="apiKeyInput">Gemini API key</label><input id="apiKeyInput" class="settings-field" type="password" autocomplete="off" placeholder="Paste API key" /><p class="settings-help">Stored only in Crew Forge on this device. The same key powers the experimental Gemini Live voice layer.</p><div class="settings-actions"><button id="clearKeyBtn" class="toolbar-btn">Clear key</button><button id="saveSettingsBtn" class="primary-btn">Save</button></div></section></div>
 
-      <label class="field-label" for="modelSelect">Preferred model</label>
-      <select id="modelSelect" class="settings-field">
-        <option value="auto">Auto · 3.6 Flash first</option>
-        <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
-        <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-        <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
-        <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
-      </select>
-      <p class="settings-help">If the preferred model fails, Forge automatically tries compatible Gemini fallback models.</p>
-
-      <label class="field-label" for="apiKeyInput">Gemini API key</label>
-      <input id="apiKeyInput" class="settings-field" type="password" autocomplete="off" placeholder="Paste API key" />
-      <p class="settings-help">Stored only in Crew Forge on this device. The key is never written into generated apps.</p>
-
-      <div class="settings-actions">
-        <button id="clearKeyBtn" class="toolbar-btn">Clear key</button>
-        <button id="saveSettingsBtn" class="primary-btn">Save</button>
-      </div>
-    </section>
-  </div>
-
-  <div id="statusOverlay" class="status-backdrop" hidden>
-    <section class="status-card">
-      <div class="forge-loader"><i></i><i></i><i></i></div>
-      <div>
-        <strong id="statusTitle">Forging your app</strong>
-        <span id="statusDetail">Asking Gemini…</span>
-      </div>
-    </section>
-  </div>
-
+  <div id="statusOverlay" class="status-backdrop" hidden><section class="status-card"><div class="forge-loader"><i></i><i></i><i></i></div><div><strong id="statusTitle">Forging your app</strong><span id="statusDetail">Asking Gemini…</span></div></section></div>
   <div id="toast" class="toast" hidden></div>
-
   <script src="./forge.js"></script>
   <script src="./native-adapter.js"></script>
+  <script src="./live-runtime.js"></script>
 </body>
 </html>
