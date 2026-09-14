@@ -1,79 +1,56 @@
 # Crew Forge
 
-Crew Forge turns a natural-language request into a runnable mini app, then lets the user keep using and modifying that same app through conversation.
+Crew Forge turns a natural-language request into a runnable mini app, then lets the user keep using and modifying that same app.
 
 > Describe it. Use it. Change it.
 
-## V0 product loop
+## Gemini-only V1
 
-1. Describe a small tool or app.
-2. Crew Forge sends the request to the Crew Pocket AI backend.
-3. The AI returns one complete self-contained HTML app.
-4. Crew Forge runs it full-screen inside a sandboxed iframe.
-5. `Modify` continues the same AI conversation so changes apply to the existing app.
-6. Each accepted result becomes a local version and can be undone.
-
-## Android V0
-
-Crew Forge now has an Android shell under `android/`.
-
-The APK does **not** generate Kotlin for each mini app. The native shell hosts the existing Forge web runtime in a WebView, while generated apps remain HTML/CSS/JS.
+Crew Forge is now a standalone Android app. It does **not** require Crew Pocket, Codex, Antigravity, Termux, or a localhost server.
 
 ```text
 Crew Forge APK
-  ├─ Android WebView shell
-  ├─ Forge UI / library / versions
-  ├─ Native bridge
-  │    ├─ vibration
-  │    └─ share
-  └─ Generated app sandbox
-        │
-        ▼
-http://127.0.0.1:8000/api/*
-        │
-        ▼
-Crew Pocket backend
-        │
-        ▼
-Codex / Antigravity / other providers
+  ├─ Forge UI
+  ├─ Gemini builder
+  │    ├─ preferred model
+  │    └─ automatic model fallback
+  ├─ Generated App Runtime
+  ├─ App Library / Versions / Undo
+  └─ Native capability bridge
+       ├─ storage
+       ├─ vibration
+       └─ Android share
 ```
 
-The WebView loads bundled Forge HTML using `http://127.0.0.1:8000/` as its base URL. This keeps `/api/chat` same-origin with Crew Pocket and preserves the existing SSE streaming transport without adding a second backend.
+The Android native layer calls the Gemini `generateContent` REST API. This keeps Gemini networking outside generated mini apps and avoids WebView CORS issues.
 
-### Build
+## Models
 
-Crew Pocket must be running locally on the Android device at `127.0.0.1:8000`.
+The model strategy follows the resilient fallback approach used in `crew-story`.
 
-From the repo root:
+Default `Auto` order:
 
-```bash
-gradle :app:assembleDebug
-```
+1. `gemini-3.6-flash`
+2. `gemini-3.5-flash`
+3. `gemini-3.5-flash-lite`
+4. `gemini-3.1-pro-preview`
+5. `gemini-2.5-flash`
 
-The APK is written to:
+The user may select a preferred model. If it is unavailable, Forge automatically falls back through the compatible list.
 
-```text
-android/app/build/outputs/apk/debug/app-debug.apk
-```
+Gemini Live is intentionally not the HTML generation transport in this version. Live is a better fit for a future realtime voice layer; complete mini-app code generation uses `generateContent` so Forge can reliably receive one full HTML document.
 
-GitHub Actions also builds and uploads a `crew-forge-debug` artifact on pushes and pull requests.
+## API key / BYOK
 
-## Single-source web runtime
+V1 uses BYOK for development and private testing. The Gemini key is stored in Crew Forge's own Android `SharedPreferences` and is never injected into generated HTML.
 
-The root files are the source of truth:
+For a public production release, replace BYOK with an authenticated backend / short-lived credential flow before distributing a shared service credential. Do not hard-code a production Gemini API key into the APK.
 
-```text
-index.html
-forge.css
-forge.js
-native-adapter.js
-```
+## Generated app sandbox
 
-Before Android builds, Gradle copies these files into `android/app/src/main/assets/forge/`. Do not manually maintain a second copy of the UI.
+Generated mini apps are HTML/CSS/JS rendered in a sandboxed iframe. Forge injects a restrictive CSP that blocks external network access and dynamic external resources.
 
-## Runtime bridge
-
-Generated apps are sandboxed. Capabilities are exposed through a narrow API:
+Generated apps can use:
 
 ```js
 await crew.storage.get(key, fallback)
@@ -85,19 +62,34 @@ await crew.vibrate(pattern)
 await crew.share({ title, text, url })
 ```
 
-Browser builds use browser APIs where available. Inside the Android APK, `native-adapter.js` routes vibration and sharing through `CrewNative`.
+Generated apps cannot directly receive the Gemini API key.
 
-Runtime state is scoped per generated app and survives code revisions.
+## Product loop
 
-## Current V0 limitations
+1. Describe a small tool or app.
+2. Gemini generates one complete self-contained HTML app.
+3. Forge immediately runs it full-screen.
+4. `Modify` sends the current authoritative HTML plus the requested change to Gemini.
+5. The updated HTML becomes a new local version.
+6. `Undo` restores the previous version without conversation-state drift.
 
-- Crew Pocket must already be running on the same Android device.
-- Generated app metadata, HTML, versions, and runtime state currently live in WebView `localStorage`.
-- No cloud sync or import/export yet.
-- Runtime capabilities are intentionally small: storage, vibration, and share.
-- Generated apps are HTML/CSS/JS only; no dynamic native code generation.
-- Android V0 is portrait-only.
+## Android build
 
-## Product goal
+```bash
+cd android
+./gradlew assembleDebug
+```
 
-The immediate question is whether **describe → use → modify → reuse** feels useful enough that people start creating small one-off software instead of searching for an existing app.
+APK:
+
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+The build syncs the root web runtime into Android assets, so the root HTML/CSS/JS remains the single source of truth.
+
+## Current V1 scope
+
+Crew Forge is intentionally optimized for small instant apps: scoreboards, timers, decision tools, trackers, quizzes, flash cards, checklists, simple calculators, and lightweight games.
+
+The generated-app contract currently forbids external network calls, external scripts, downloads, dynamic script loading, credential collection, payments, and other high-risk flows.
