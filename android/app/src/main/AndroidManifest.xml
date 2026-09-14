@@ -8,7 +8,7 @@
         android:allowBackup="true"
         android:icon="@drawable/ic_crew_forge"
         android:roundIcon="@drawable/ic_crew_forge"
-        android:label="Crew Forge"
+        android:label="Crew Builder"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
         <activity
