@@ -14,12 +14,15 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
 import android.webkit.JavascriptInterface
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.security.KeyStore
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -53,6 +56,12 @@ class ForgeNativeBridge(
     private class GeminiHttpException(val statusCode: Int, detail: String) : IllegalStateException("HTTP $statusCode $detail")
 
     private val executor = Executors.newCachedThreadPool()
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(45, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
     private val live = GeminiLiveClient(onLiveEvent)
 
     init { migratePreferences() }
@@ -129,22 +138,22 @@ class ForgeNativeBridge(
     }
 
     private fun callGemini(apiKey: String, model: String, prompt: String): String {
-        val connection = (URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey").openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"; connectTimeout = 20_000; readTimeout = 90_000; doOutput = true; setRequestProperty("Content-Type", "application/json; charset=utf-8")
-        }
+        val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
         val payload = JSONObject().apply {
             put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", prompt)))))
             put("generationConfig", JSONObject().put("maxOutputTokens", 8192))
         }
-        try {
-            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
-            val status = connection.responseCode
-            val body = (if (status in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) throw GeminiHttpException(status, compactError(body).take(360))
+        val request = Request.Builder()
+            .url(endpoint)
+            .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw GeminiHttpException(response.code, compactError(body).take(360))
             val candidates = JSONObject(body).optJSONArray("candidates") ?: throw IllegalStateException("No candidates")
             val parts = candidates.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts") ?: throw IllegalStateException("No content parts")
             return buildString { for (i in 0 until parts.length()) append(parts.optJSONObject(i)?.optString("text").orEmpty()) }.trim()
-        } finally { connection.disconnect() }
+        }
     }
 
     private fun deliver(requestId: String, text: String?, model: String?, error: String?) {
@@ -158,6 +167,9 @@ class ForgeNativeBridge(
         }
         if (failures.any { it.contains("HTTP 401") || it.contains("HTTP 403") }) {
             return "Gemini API key rejected. Check the key permissions and billing."
+        }
+        if (failures.any { it.contains("Unable to resolve host") || it.contains("timeout", ignoreCase = true) || it.contains("timed out", ignoreCase = true) }) {
+            return "Gemini network unavailable. Check the phone connection and try again."
         }
         if (failures.isEmpty()) return "No Gemini model succeeded"
         return failures.take(3).joinToString("; ").take(900)
