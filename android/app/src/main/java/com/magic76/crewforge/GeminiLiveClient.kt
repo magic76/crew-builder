@@ -55,6 +55,10 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
                     })
                     put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt(appContext)))))
                     put("tools", JSONArray().put(JSONObject().put("functionDeclarations", JSONArray()
+                        .put(function("inspect_app", "Read the current mini app's visible controls and state. Call this before claiming the app has no usable action.", JSONObject().apply {
+                            put("type", "OBJECT")
+                            put("properties", JSONObject())
+                        }))
                         .put(function("app_action", "Operate the currently visible mini app. Use an action exposed by the app.", JSONObject().apply {
                             put("type", "OBJECT")
                             put("properties", JSONObject().apply {
@@ -219,8 +223,6 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
             while (recording) {
                 val count = try { record.read(buffer, 0, buffer.size) } catch (_: Exception) { -1 }
                 if (count > 0) {
-                    // Crew Helper-style protection: never stream microphone audio while the AI is speaking.
-                    // This prevents speaker echo / ambient sound from accidentally interrupting the response.
                     if (aiSpeaking) continue
 
                     val data = Base64.encodeToString(buffer.copyOf(count), Base64.NO_WRAP)
@@ -306,9 +308,10 @@ You are the live voice companion inside Crew Forge. The user is currently using 
 $styleInstruction
 $languageInstruction
 Finish your spoken response before listening for the next user request. Do not treat speaker echo or ambient noise as an interruption.
-For ordinary operations, call app_action using one of the exposed actions in CURRENT APP CONTEXT.
+For ordinary operations, use app_action with an action exposed by the current app.
+If CURRENT APP CONTEXT has no actions, looks stale, or you are unsure whether a requested operation exists, call inspect_app first. Never claim the app has no usable tools before calling inspect_app.
+The generic actions click, set_input, and page_state are valid runtime capabilities even when the generated app did not explicitly register custom actions.
 For visual or structural changes, call modify_app. Do not pretend an action succeeded before the tool result returns.
-If the app does not expose a suitable action, explain briefly or use modify_app to add the capability when appropriate.
 
 CURRENT APP CONTEXT:
 $context
