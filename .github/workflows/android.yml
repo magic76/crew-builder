@@ -18,6 +18,7 @@ jobs:
         run: |
           node --check forge.js
           node --check native-adapter.js
+          node --check live-runtime.js
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

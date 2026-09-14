@@ -8,6 +8,7 @@
 .settings-field { width: 100%; min-height: 48px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: #0b1018; color: #f7f8fb; padding: 0 13px; outline: none; font: inherit; }
 .settings-field:focus { border-color: rgba(158,255,199,.5); }
 .settings-help { margin: 7px 2px 0; color: #778397; font-size: 11px; line-height: 1.45; }
+.settings-divider { height: 1px; margin: 18px 0; background: rgba(255,255,255,.08); }
 .settings-actions { display: grid; grid-template-columns: 120px 1fr; gap: 10px; margin-top: 20px; }
 .toast.error { background: #ffe9ed; color: #5e1725; }
 .live-toolbar { grid-template-columns: 82px 118px 1fr; }

@@ -1,14 +1,36 @@
 (() => {
+  const STYLE_KEY = 'crew-forge.live-style';
+  const LANGUAGE_KEY = 'crew-forge.live-language';
   const liveBtn = document.getElementById('liveBtn');
   const liveLabel = document.getElementById('liveLabel');
+  const styleSelect = document.getElementById('liveStyleSelect');
+  const languageSelect = document.getElementById('liveLanguageSelect');
   const preview = document.getElementById('preview');
   const actionRegistry = new Map();
   const pendingActions = new Map();
   let liveState = 'stopped';
   let actionSeq = 0;
+
+  if (styleSelect) styleSelect.value = localStorage.getItem(STYLE_KEY) || 'concise';
+  if (languageSelect) languageSelect.value = localStorage.getItem(LANGUAGE_KEY) || 'auto';
+  styleSelect?.addEventListener('change', () => localStorage.setItem(STYLE_KEY, styleSelect.value || 'concise'));
+  languageSelect?.addEventListener('change', () => localStorage.setItem(LANGUAGE_KEY, languageSelect.value || 'auto'));
+
   const setState = (state, message) => { liveState = state; liveBtn?.classList.toggle('active', state === 'ready'); liveBtn?.classList.toggle('connecting', state === 'connecting'); if (liveLabel) liveLabel.textContent = state === 'ready' ? 'Listening' : state === 'connecting' ? 'Connecting' : 'Live'; if (message && window.showToast) window.showToast(message, state === 'error'); };
   const app = () => window.getActiveApp?.();
-  const context = () => { const current = app(); return JSON.stringify({ app: current ? { id: current.id, name: current.name, summary: current.summary } : null, actions: current ? (actionRegistry.get(current.id) || []) : [] }); };
+  const context = () => {
+    const current = app();
+    return JSON.stringify({
+      app: current ? { id: current.id, name: current.name, summary: current.summary } : null,
+      actions: current ? (actionRegistry.get(current.id) || []) : [],
+      live: {
+        style: localStorage.getItem(STYLE_KEY) || 'concise',
+        language: localStorage.getItem(LANGUAGE_KEY) || 'auto',
+        interruption: 'finish-speaking-first'
+      }
+    });
+  };
+
   liveBtn?.addEventListener('click', () => { if (!window.CrewNative?.startGeminiLive) return window.showToast?.('Live requires the Android app', true); if (liveState === 'ready' || liveState === 'connecting') { window.CrewNative.stopGeminiLive(); setState('stopped'); return; } if (!window.CrewAI?.hasApiKey?.()) return window.openSettings?.(); setState('connecting'); window.CrewNative.startGeminiLive(context()); });
   window.addEventListener('message', (event) => { if (event.source !== preview?.contentWindow) return; const msg = event.data || {}; if (!msg.__crewLive) return; const current = app(); if (!current || msg.appId !== current.id) return; if (msg.type === 'register') actionRegistry.set(current.id, Array.isArray(msg.actions) ? msg.actions : []); if (msg.type === 'result' && pendingActions.has(msg.id)) { const pending = pendingActions.get(msg.id); pendingActions.delete(msg.id); pending(msg); } });
   function executeAction(name, args) { return new Promise((resolve) => { const current = app(); if (!current || !preview?.contentWindow) return resolve({ ok: false, error: 'No active app' }); const id = `live_${Date.now()}_${++actionSeq}`; pendingActions.set(id, (msg) => resolve(msg.error ? { ok: false, error: msg.error } : { ok: true, result: msg.result ?? null })); preview.contentWindow.postMessage({ __crewLive: true, type: 'execute', id, appId: current.id, name, args }, '*'); setTimeout(() => { if (!pendingActions.has(id)) return; pendingActions.delete(id); resolve({ ok: false, error: 'App action timed out' }); }, 5000); }); }
