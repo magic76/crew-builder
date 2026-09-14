@@ -29,15 +29,18 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
+
     @Volatile private var socket: WebSocket? = null
     @Volatile private var recording = false
     @Volatile private var setupComplete = false
+    @Volatile private var aiSpeaking = false
     private var recorder: AudioRecord? = null
     private var track: AudioTrack? = null
 
     fun start(apiKey: String, appContext: String) {
         stop()
         setupComplete = false
+        aiSpeaking = false
         emit("connecting", "Opening Gemini Live connection")
         val request = Request.Builder().url(URL + apiKey.trim()).build()
         socket = client.newWebSocket(request, object : WebSocketListener() {
@@ -83,6 +86,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
 
             override fun onMessage(webSocket: WebSocket, text: String) = handle(text)
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) = handle(bytes.utf8())
+
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 val detail = response?.let { "HTTP ${it.code}: ${it.message}" }
                 Log.e(TAG, "WebSocket failure: ${detail ?: t.message ?: t.javaClass.simpleName}", t)
@@ -90,6 +94,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
                 stopAudio()
                 if (socket === webSocket) socket = null
             }
+
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i(TAG, "WebSocket closed: code=$code reason=${reason.ifBlank { "none" }}")
                 stopAudio()
@@ -101,6 +106,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
 
     fun stop() {
         setupComplete = false
+        aiSpeaking = false
         recording = false
         stopAudio()
         socket?.close(1000, "user stopped")
@@ -122,6 +128,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
                 startRecording()
                 return
             }
+
             val toolCall = root.optJSONObject("toolCall") ?: root.optJSONObject("tool_call")
             val calls = toolCall?.optJSONArray("functionCalls") ?: toolCall?.optJSONArray("function_calls")
             if (calls != null) {
@@ -130,15 +137,31 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
                     emitTool(call.optString("id"), call.optString("name"), call.optJSONObject("args") ?: JSONObject())
                 }
             }
+
             val server = root.optJSONObject("serverContent") ?: root.optJSONObject("server_content") ?: return
             val turn = server.optJSONObject("modelTurn") ?: server.optJSONObject("model_turn")
             val parts = turn?.optJSONArray("parts")
-            if (parts != null) for (i in 0 until parts.length()) {
-                val inline = parts.optJSONObject(i)?.optJSONObject("inlineData") ?: parts.optJSONObject(i)?.optJSONObject("inline_data") ?: continue
-                val mime = inline.optString("mimeType", inline.optString("mime_type"))
-                if (mime.contains("audio") || mime.contains("pcm")) play(Base64.decode(inline.optString("data"), Base64.DEFAULT))
+            if (parts != null) {
+                for (i in 0 until parts.length()) {
+                    val inline = parts.optJSONObject(i)?.optJSONObject("inlineData") ?: parts.optJSONObject(i)?.optJSONObject("inline_data") ?: continue
+                    val mime = inline.optString("mimeType", inline.optString("mime_type"))
+                    if (mime.contains("audio") || mime.contains("pcm")) {
+                        aiSpeaking = true
+                        play(Base64.decode(inline.optString("data"), Base64.DEFAULT))
+                    }
+                }
             }
-            if (server.optBoolean("interrupted", false)) flushOutput()
+
+            val turnComplete = server.optBoolean("turnComplete", server.optBoolean("turn_complete", false))
+            if (turnComplete) {
+                aiSpeaking = false
+                emit("ready", "Listening")
+            }
+
+            if (server.optBoolean("interrupted", false)) {
+                aiSpeaking = false
+                flushOutput()
+            }
         } catch (error: Exception) {
             Log.e(TAG, "Failed to handle Live server message", error)
         }
@@ -152,6 +175,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
             emit("error", "Microphone is unavailable")
             return
         }
+
         val record = try {
             AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, 3200))
         } catch (error: Exception) {
@@ -159,12 +183,14 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
             emit("error", "Microphone could not start")
             return
         }
+
         if (record.state != AudioRecord.STATE_INITIALIZED) {
             Log.e(TAG, "Microphone is not initialized: state=${record.state}")
             record.release()
             emit("error", "Microphone could not start")
             return
         }
+
         recorder = record
         recording = true
         try {
@@ -177,6 +203,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
             emit("error", "Microphone could not start")
             return
         }
+
         if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
             Log.e(TAG, "Microphone did not enter recording state: state=${record.recordingState}")
             recording = false
@@ -185,12 +212,17 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
             emit("error", "Microphone could not start")
             return
         }
+
         Log.i(TAG, "Microphone recording started")
         thread(name = "forge-live-mic", isDaemon = true) {
             val buffer = ByteArray(3200)
             while (recording) {
                 val count = try { record.read(buffer, 0, buffer.size) } catch (_: Exception) { -1 }
                 if (count > 0) {
+                    // Crew Helper-style protection: never stream microphone audio while the AI is speaking.
+                    // This prevents speaker echo / ambient sound from accidentally interrupting the response.
+                    if (aiSpeaking) continue
+
                     val data = Base64.encodeToString(buffer.copyOf(count), Base64.NO_WRAP)
                     val audio = JSONObject().put("mimeType", "audio/pcm;rate=16000").put("data", data)
                     if (socket?.send(JSONObject().put("realtimeInput", JSONObject().put("audio", audio)).toString()) == false) {
@@ -213,16 +245,27 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
             output = AudioTrack.Builder()
                 .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
                 .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(24000).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-                .setBufferSizeInBytes(maxOf(min, 24000)).setTransferMode(AudioTrack.MODE_STREAM).build()
-            output.play(); track = output
+                .setBufferSizeInBytes(maxOf(min, 24000))
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+            output.play()
+            track = output
             Log.i(TAG, "Audio playback started")
         }
         output.write(pcm, 0, pcm.size)
     }
 
-    private fun flushOutput() { try { track?.pause(); track?.flush(); track?.play() } catch (_: Exception) {} }
+    private fun flushOutput() {
+        try {
+            track?.pause()
+            track?.flush()
+            track?.play()
+        } catch (_: Exception) {}
+    }
+
     private fun stopAudio() {
         recording = false
+        aiSpeaking = false
         try { recorder?.stop() } catch (_: Exception) {}
         try { recorder?.release() } catch (_: Exception) {}
         recorder = null
@@ -231,18 +274,44 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
         track = null
     }
 
-    private fun function(name: String, description: String, parameters: JSONObject) = JSONObject().put("name", name).put("description", description).put("parameters", parameters)
-    private fun emit(state: String, message: String? = null) = onEvent(JSONObject().put("type", "state").put("state", state).put("message", message ?: JSONObject.NULL).toString())
-    private fun emitTool(id: String, name: String, args: JSONObject) = onEvent(JSONObject().put("type", "tool").put("id", id).put("name", name).put("args", args).toString())
+    private fun function(name: String, description: String, parameters: JSONObject) =
+        JSONObject().put("name", name).put("description", description).put("parameters", parameters)
 
-    private fun systemPrompt(context: String) = """
+    private fun emit(state: String, message: String? = null) =
+        onEvent(JSONObject().put("type", "state").put("state", state).put("message", message ?: JSONObject.NULL).toString())
+
+    private fun emitTool(id: String, name: String, args: JSONObject) =
+        onEvent(JSONObject().put("type", "tool").put("id", id).put("name", name).put("args", args).toString())
+
+    private fun systemPrompt(context: String): String {
+        val root = try { JSONObject(context) } catch (_: Exception) { JSONObject() }
+        val live = root.optJSONObject("live") ?: JSONObject()
+        val style = live.optString("style", "concise")
+        val language = live.optString("language", "auto")
+
+        val styleInstruction = when (style) {
+            "detailed" -> "Give clear, useful context and explanation, but remain conversational."
+            "balanced" -> "Be natural and moderately concise. Explain only what is useful."
+            else -> "Be very concise and direct. Prefer one short sentence unless more is necessary."
+        }
+        val languageInstruction = when (language) {
+            "zh-TW" -> "Always respond in Traditional Chinese (Taiwan)."
+            "en" -> "Always respond in English."
+            "ja" -> "Always respond in Japanese."
+            else -> "Respond in the language the user is currently speaking."
+        }
+
+        return """
 You are the live voice companion inside Crew Forge. The user is currently using a generated mini app.
-Be concise, conversational, and useful. Speak in the user's language.
+$styleInstruction
+$languageInstruction
+Finish your spoken response before listening for the next user request. Do not treat speaker echo or ambient noise as an interruption.
 For ordinary operations, call app_action using one of the exposed actions in CURRENT APP CONTEXT.
-For visual/structural changes, call modify_app. Do not pretend an action succeeded before the tool result returns.
+For visual or structural changes, call modify_app. Do not pretend an action succeeded before the tool result returns.
 If the app does not expose a suitable action, explain briefly or use modify_app to add the capability when appropriate.
 
 CURRENT APP CONTEXT:
 $context
 """.trimIndent()
+    }
 }
