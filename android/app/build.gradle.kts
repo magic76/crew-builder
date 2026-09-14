@@ -40,6 +40,7 @@ val syncForgeWeb by tasks.registering(Sync::class) {
     into(forgeWebDir)
     from(repoRoot.file("index.html"))
     from(repoRoot.file("forge.css"))
+    from(repoRoot.file("gemini.css"))
     from(repoRoot.file("forge.js"))
     from(repoRoot.file("native-adapter.js"))
 }
