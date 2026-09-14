@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import org.json.JSONObject
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
@@ -14,6 +15,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         webView = WebView(this).apply {
+            id = android.R.id.content
             setBackgroundColor(android.graphics.Color.rgb(9, 12, 18))
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -21,11 +23,14 @@ class MainActivity : Activity() {
             settings.allowFileAccess = false
             settings.allowContentAccess = false
             settings.mediaPlaybackRequiresUserGesture = false
-            addJavascriptInterface(ForgeNativeBridge(this@MainActivity), "CrewNative")
+            addJavascriptInterface(
+                ForgeNativeBridge(this@MainActivity) { payload -> resolveGemini(payload) },
+                "CrewNative"
+            )
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val uri = request?.url ?: return false
-                    if (uri.host == "127.0.0.1" || uri.host == "localhost") return false
+                    if (uri.host == "app.crewforge.local") return false
                     startActivity(Intent(Intent.ACTION_VIEW, uri))
                     return true
                 }
@@ -47,13 +52,22 @@ class MainActivity : Activity() {
             .replace("<script src=\"./forge.js\"></script>", "<script>$js</script>")
             .replace("<script src=\"./native-adapter.js\"></script>", "<script>$nativeAdapter</script>")
 
-        // The bundled page adopts Crew Pocket's localhost origin so /api/* stays same-origin.
-        // That preserves the existing SSE /api/chat transport without a second backend.
+        // Stable HTTPS-like origin for DOM storage. Gemini traffic goes through CrewNative,
+        // so the APK no longer requires Crew Pocket or a localhost server.
         webView.loadDataWithBaseURL(
-            "http://127.0.0.1:8000/",
+            "https://app.crewforge.local/",
             bundled,
             "text/html",
             "UTF-8",
+            null
+        )
+    }
+
+    fun resolveGemini(payload: String) {
+        if (!::webView.isInitialized) return
+        val quoted = JSONObject.quote(payload)
+        webView.evaluateJavascript(
+            "window.__crewGeminiResolve && window.__crewGeminiResolve($quoted)",
             null
         )
     }
