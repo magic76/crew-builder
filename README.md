@@ -50,6 +50,12 @@ From the repo root:
 gradle :app:assembleDebug
 ```
 
+On Termux, use the local ARM64-aware wrapper when the Android SDK is stored in the Crew Pocket cache:
+
+```bash
+sh scripts/build-apk.sh
+```
+
 The APK is written to:
 
 ```text
