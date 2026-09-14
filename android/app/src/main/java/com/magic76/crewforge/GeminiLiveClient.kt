@@ -1,4 +1,4 @@
-package com.magic76.crewforge
+package com.crewpocket.crewbuilder
 
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -20,7 +20,7 @@ import kotlin.concurrent.thread
 
 class GeminiLiveClient(private val onEvent: (String) -> Unit) {
     companion object {
-        private const val TAG = "CrewForgeLive"
+        private const val TAG = "CrewBuilderLive"
         private const val MODEL = "models/gemini-3.1-flash-live-preview"
         private const val URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key="
         private const val SETUP_TIMEOUT_MS = 15_000L
@@ -82,7 +82,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
                     return
                 }
                 emit("connecting", "Setup sent · waiting for Gemini")
-                thread(name = "forge-live-setup-timeout", isDaemon = true) {
+                thread(name = "builder-live-setup-timeout", isDaemon = true) {
                     Thread.sleep(SETUP_TIMEOUT_MS)
                     if (socket === webSocket && !setupComplete) {
                         emit("error", "Gemini Live setup timed out")
@@ -225,7 +225,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
         }
 
         Log.i(TAG, "Microphone recording started")
-        thread(name = "forge-live-mic", isDaemon = true) {
+        thread(name = "builder-live-mic", isDaemon = true) {
             val buffer = ByteArray(3200)
             while (recording) {
                 val count = try { record.read(buffer, 0, buffer.size) } catch (_: Exception) { -1 }
