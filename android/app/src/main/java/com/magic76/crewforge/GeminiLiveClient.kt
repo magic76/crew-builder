@@ -24,6 +24,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
         private const val MODEL = "models/gemini-3.1-flash-live-preview"
         private const val URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key="
         private const val SETUP_TIMEOUT_MS = 15_000L
+        private const val PLAYBACK_TAIL_GUARD_MS = 450L
     }
 
     private val client = OkHttpClient.Builder()
@@ -34,6 +35,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
     @Volatile private var recording = false
     @Volatile private var setupComplete = false
     @Volatile private var aiSpeaking = false
+    @Volatile private var resumeMicAt = 0L
     private var recorder: AudioRecord? = null
     private var track: AudioTrack? = null
 
@@ -41,6 +43,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
         stop()
         setupComplete = false
         aiSpeaking = false
+        resumeMicAt = 0L
         emit("connecting", "Opening Gemini Live connection")
         val request = Request.Builder().url(URL + apiKey.trim()).build()
         socket = client.newWebSocket(request, object : WebSocketListener() {
@@ -111,6 +114,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
     fun stop() {
         setupComplete = false
         aiSpeaking = false
+        resumeMicAt = 0L
         recording = false
         stopAudio()
         socket?.close(1000, "user stopped")
@@ -151,6 +155,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
                     val mime = inline.optString("mimeType", inline.optString("mime_type"))
                     if (mime.contains("audio") || mime.contains("pcm")) {
                         aiSpeaking = true
+                        resumeMicAt = Long.MAX_VALUE
                         play(Base64.decode(inline.optString("data"), Base64.DEFAULT))
                     }
                 }
@@ -159,11 +164,13 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
             val turnComplete = server.optBoolean("turnComplete", server.optBoolean("turn_complete", false))
             if (turnComplete) {
                 aiSpeaking = false
+                resumeMicAt = System.currentTimeMillis() + PLAYBACK_TAIL_GUARD_MS
                 emit("ready", "Listening")
             }
 
             if (server.optBoolean("interrupted", false)) {
                 aiSpeaking = false
+                resumeMicAt = System.currentTimeMillis() + PLAYBACK_TAIL_GUARD_MS
                 flushOutput()
             }
         } catch (error: Exception) {
@@ -223,7 +230,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
             while (recording) {
                 val count = try { record.read(buffer, 0, buffer.size) } catch (_: Exception) { -1 }
                 if (count > 0) {
-                    if (aiSpeaking) continue
+                    if (aiSpeaking || System.currentTimeMillis() < resumeMicAt) continue
 
                     val data = Base64.encodeToString(buffer.copyOf(count), Base64.NO_WRAP)
                     val audio = JSONObject().put("mimeType", "audio/pcm;rate=16000").put("data", data)
@@ -268,6 +275,7 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
     private fun stopAudio() {
         recording = false
         aiSpeaking = false
+        resumeMicAt = 0L
         try { recorder?.stop() } catch (_: Exception) {}
         try { recorder?.release() } catch (_: Exception) {}
         recorder = null
@@ -304,10 +312,10 @@ class GeminiLiveClient(private val onEvent: (String) -> Unit) {
         }
 
         return """
-You are the live voice companion inside Crew Forge. The user is currently using a generated mini app.
+You are the live voice companion inside Crew Builder. The user is currently using a generated mini app.
 $styleInstruction
 $languageInstruction
-Finish your spoken response before listening for the next user request. Do not treat speaker echo or ambient noise as an interruption.
+Finish your entire spoken response before listening for the next user request. Never shorten or abort a response because of speaker echo, ambient noise, or your own playback.
 For ordinary operations, use app_action with an action exposed by the current app.
 If CURRENT APP CONTEXT has no actions, looks stale, or you are unsure whether a requested operation exists, call inspect_app first. Never claim the app has no usable tools before calling inspect_app.
 The generic actions click, set_input, and page_state are valid runtime capabilities even when the generated app did not explicitly register custom actions.
