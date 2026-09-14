@@ -32,6 +32,10 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 
+dependencies {
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+}
+
 val forgeWebDir = layout.projectDirectory.dir("src/main/assets/forge")
 val repoRoot = rootProject.layout.projectDirectory
 
