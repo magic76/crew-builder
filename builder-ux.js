@@ -31,6 +31,10 @@
   const save = (apps) => localStorage.setItem(APPS_KEY, JSON.stringify(apps));
   const activeId = () => localStorage.getItem(ACTIVE_KEY);
   const toast = (text) => { const node = el('toast'); if (!node) return; node.textContent = text; node.hidden = false; clearTimeout(node.__uxTimer); node.__uxTimer = setTimeout(() => node.hidden = true, 1800); };
+  const reloadBuilder = (openId = null) => {
+    if (openId) localStorage.setItem(ACTIVE_KEY, openId); else localStorage.removeItem(ACTIVE_KEY);
+    location.reload();
+  };
 
   function syncMenuLanguage() {
     el('appMenuTitle').textContent = t('manage');
@@ -58,26 +62,23 @@
     const name = window.prompt(t('renamePrompt'), app.name || '');
     if (!name || !name.trim()) return;
     app.name = name.trim(); app.updatedAt = Date.now(); save(apps);
-    el('appTitle').textContent = app.name; el('appMenuEyebrow').textContent = app.name; closeMenu(); toast(t('renamed'));
+    reloadBuilder(id);
   }
   function duplicate() {
     const id = activeId(); const apps = load(); const app = apps.find((item) => item.id === id); if (!app) return;
     const now = Date.now(); const clone = JSON.parse(JSON.stringify(app));
     clone.id = crypto.randomUUID ? crypto.randomUUID() : `builder_${now}_${Math.random().toString(36).slice(2,8)}`;
     clone.name = `${app.name || 'App'}${lang() === 'zh-TW' ? ' 副本' : ' Copy'}`; clone.createdAt = now; clone.updatedAt = now;
-    apps.unshift(clone); save(apps); closeMenu(); toast(t('copied'));
+    apps.unshift(clone); save(apps); reloadBuilder(clone.id);
   }
   function remove() {
     const id = activeId(); if (!id || !window.confirm(t('deleteConfirm'))) return;
-    save(load().filter((item) => item.id !== id)); localStorage.removeItem(ACTIVE_KEY); closeMenu(); toast(t('deleted'));
-    setTimeout(() => el('backBtn')?.click(), 80);
+    save(load().filter((item) => item.id !== id)); reloadBuilder(null);
   }
 
-  // The core builder intentionally always uses its native fallback chain. Keep its hidden selector pinned to auto.
   const model = el('modelSelect'); if (model) model.value = 'auto';
   localStorage.setItem('crew-builder.gemini-model', 'auto');
 
-  // Add the selected interface language to create/modify requests without changing what the user sees.
   function injectLanguage(event) {
     const target = event.target;
     const isBuildClick = target?.closest?.('#forgeBtn');
