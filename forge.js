@@ -290,7 +290,6 @@ function validateGeneratedHtml(html) {
     [/\bWebSocket\b/i, 'WebSocket is not allowed'],
     [/\blocalStorage\b|\bsessionStorage\b/i, 'Use crew.storage instead of browser storage'],
     [/\beval\s*\(|\bnew\s+Function\s*\(/i, 'Dynamic code execution is not allowed'],
-    [/\b(?:window\.)?(?:parent|top)\b/i, 'Parent/top access is not allowed']
   ];
   forbidden.forEach(([pattern, message]) => { if (pattern.test(value)) issues.push(message); });
 
@@ -298,6 +297,11 @@ function validateGeneratedHtml(html) {
     const doc = new DOMParser().parseFromString(value, 'text/html');
     const parserError = doc.querySelector('parsererror');
     if (parserError) issues.push('HTML parser error');
+    const inlineScripts = [...doc.querySelectorAll('script:not([src])')]
+      .map((script) => script.textContent || '')
+      .join('\n');
+    const crossFrameAccess = /\b(?:window|globalThis|self|frames)\s*\.\s*(?:parent|top)\b|\b(?:parent|top)\s*(?:\.|\[)/i;
+    if (crossFrameAccess.test(inlineScripts)) issues.push('Parent/top access is not allowed');
     doc.querySelectorAll('script:not([src])').forEach((script) => {
       try { new Function(script.textContent || ''); } catch (error) { issues.push(`JavaScript syntax error: ${error.message}`); }
     });
