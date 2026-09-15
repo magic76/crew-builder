@@ -16,6 +16,6 @@ val forgeWebDir = layout.projectDirectory.dir("src/main/assets/forge")
 val repoRoot = rootProject.layout.projectDirectory
 val syncForgeWeb by tasks.registering(Sync::class) {
     into(forgeWebDir)
-    from(repoRoot.file("index.html")); from(repoRoot.file("forge.css")); from(repoRoot.file("gemini.css")); from(repoRoot.file("forge.js")); from(repoRoot.file("native-adapter.js")); from(repoRoot.file("live-runtime.js")); from(repoRoot.file("ui-runtime.js"))
+    from(repoRoot.file("index.html")); from(repoRoot.file("forge.css")); from(repoRoot.file("gemini.css")); from(repoRoot.file("forge.js")); from(repoRoot.file("native-adapter.js")); from(repoRoot.file("live-runtime.js")); from(repoRoot.file("ui-runtime.js")); from(repoRoot.file("builder-ux.js"))
 }
 tasks.named("preBuild").configure { dependsOn(syncForgeWeb) }
