@@ -1,11 +1,9 @@
 name: Android
-
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,6 +19,7 @@ jobs:
           node --check live-runtime.js
           node --check ui-runtime.js
           node --check builder-ux.js
+          node --check builder-next.js
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
