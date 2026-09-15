@@ -58,9 +58,7 @@ class ForgeNativeBridge(
     private val executor = Executors.newCachedThreadPool()
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
+        .readTimeout(35, TimeUnit.SECONDS)
         .build()
     private val live = GeminiLiveClient(onLiveEvent)
 
@@ -104,7 +102,7 @@ class ForgeNativeBridge(
             val failures = mutableListOf<String>()
             for (model in models) {
                 try {
-                    val text = callGeminiWithRetry(apiKey, model, prompt)
+                    val text = callGemini(apiKey, model, prompt)
                     if (text.isNotBlank()) { deliver(requestId, text, model, null); return@execute }
                     failures.add("$model returned an empty response")
                 } catch (error: Exception) {
@@ -117,24 +115,6 @@ class ForgeNativeBridge(
             }
             deliver(requestId, null, null, summarizeFailures(failures))
         }
-    }
-
-    private fun callGeminiWithRetry(apiKey: String, model: String, prompt: String): String {
-        var lastError: Exception? = null
-        var attempt = 0
-        while (attempt < 2) {
-            try {
-                return callGemini(apiKey, model, prompt)
-            } catch (error: Exception) {
-                lastError = error
-                val status = (error as? GeminiHttpException)?.statusCode
-                val retryable = error is java.io.IOException || (status != null && status in 500..599)
-                if (!retryable || attempt == 1) break
-                Thread.sleep(800L)
-                attempt++
-            }
-        }
-        throw lastError ?: IllegalStateException("Gemini request failed")
     }
 
     private fun callGemini(apiKey: String, model: String, prompt: String): String {
