@@ -20,6 +20,7 @@ jobs:
           node --check native-adapter.js
           node --check live-runtime.js
           node --check ui-runtime.js
+          node --check builder-ux.js
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
