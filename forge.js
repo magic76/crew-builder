@@ -33,6 +33,7 @@ const modifyInput = el('modifyInput');
 const modifyBtn = el('modifyBtn');
 const undoBtn = el('undoBtn');
 const versionBtn = el('versionBtn');
+const appMenuSheet = el('appMenuSheet');
 const settingsSheet = el('settingsSheet');
 const modelSelect = el('modelSelect');
 const apiKeyInput = el('apiKeyInput');
@@ -44,11 +45,13 @@ migrateLocalStorage();
 let apps = loadApps();
 let activeAppId = localStorage.getItem(ACTIVE_KEY) || null;
 let busy = false;
-
-setTimeout(init, 0);
+let initialized = false;
 
 function init() {
+  if (initialized) return;
+  initialized = true;
   bindUi();
+  recoverInterruptedBuilds();
   const selected = localStorage.getItem(MODEL_KEY) || 'auto';
   modelSelect.value = MODEL_LABELS[selected] ? selected : 'auto';
   updateModelUi();
@@ -73,7 +76,14 @@ function bindUi() {
   el('modifyCloseBtn').addEventListener('click', closeModify);
   modifyBtn.addEventListener('click', () => modifyApp(modifyInput.value));
   undoBtn.addEventListener('click', undoActiveApp);
-  versionBtn.addEventListener('click', showVersionInfo);
+  versionBtn.addEventListener('click', openAppMenu);
+  el('appMenuCloseBtn')?.addEventListener('click', closeAppMenu);
+  appMenuSheet?.addEventListener('click', (event) => { if (event.target === appMenuSheet) closeAppMenu(); });
+  el('renameAppBtn')?.addEventListener('click', renameActiveApp);
+  el('duplicateAppBtn')?.addEventListener('click', duplicateActiveApp);
+  el('deleteAppBtn')?.addEventListener('click', deleteActiveApp);
+  const pinButton = el('pinAppBtn');
+  if (pinButton) pinButton.onclick = toggleActivePin;
   el('settingsBtn').addEventListener('click', openSettings);
   modelPill.addEventListener('click', openSettings);
   el('settingsCloseBtn').addEventListener('click', closeSettings);
@@ -83,6 +93,9 @@ function bindUi() {
   settingsSheet.addEventListener('click', (event) => { if (event.target === settingsSheet) closeSettings(); });
   window.addEventListener('message', handleRuntimeMessage);
 }
+
+window.addEventListener('load', init, { once: true });
+if (document.readyState === 'complete') setTimeout(init, 0);
 
 function migrateLocalStorage() {
   if (localStorage.getItem(STORAGE_KEY) == null) {
@@ -112,6 +125,17 @@ function loadApps() {
 }
 
 function saveApps() { localStorage.setItem(STORAGE_KEY, JSON.stringify(apps)); }
+function recoverInterruptedBuilds() {
+  const hadBuildingApp = apps.some((app) => app.status === 'building');
+  if (hadBuildingApp) {
+    apps = apps.filter((app) => app.status !== 'building');
+    saveApps();
+  }
+  if (activeAppId && !apps.some((app) => app.id === activeAppId)) {
+    activeAppId = null;
+    localStorage.removeItem(ACTIVE_KEY);
+  }
+}
 function getActiveApp() { return apps.find((app) => app.id === activeAppId) || null; }
 function selectedModel() { return localStorage.getItem(MODEL_KEY) || 'auto'; }
 function createId() {
@@ -172,25 +196,38 @@ function ensureGeminiReady() {
 }
 
 function renderLibrary() {
-  const sorted = [...apps].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const sorted = [...apps].sort((a, b) => {
+    const aBuilding = a.status === 'building';
+    const bBuilding = b.status === 'building';
+    if (aBuilding !== bBuilding) return aBuilding ? -1 : 1;
+    if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  });
   if (!sorted.length) {
     libraryEl.innerHTML = `<div class="empty-card"><div class="empty-icon">◇</div><strong>No built apps yet</strong><span>Your first mini app will appear here.</span></div>`;
     return;
   }
-  libraryEl.innerHTML = sorted.map((app) => `
-    <button class="app-card" data-app-id="${escapeAttr(app.id)}">
+  const buildingLabel = document.documentElement.dataset.uiLanguage === 'en' ? 'Building' : '建立中';
+  libraryEl.innerHTML = sorted.map((app) => {
+    const building = app.status === 'building';
+    const status = building ? `${buildingLabel} · 0s` : (app.summary || app.originalPrompt || 'Generated mini app');
+    const pin = app.pinned ? ' · pinned' : '';
+    return `
+    <button class="app-card${building ? ' building' : ''}" data-app-id="${escapeAttr(app.id)}" data-status="${building ? 'building' : 'ready'}"${building ? ' disabled aria-disabled="true"' : ''}>
       <div class="app-card-icon">${escapeHtml(app.icon || '✦')}</div>
-      <div class="app-card-copy"><strong>${escapeHtml(app.name || 'Untitled App')}</strong><span>${escapeHtml(app.summary || app.originalPrompt || 'Generated mini app')}</span></div>
-      <div class="app-card-meta">v${Math.max(1, app.versions?.length || 1)}</div>
-    </button>`).join('');
+      <div class="app-card-copy"><strong>${escapeHtml(app.name || 'Untitled App')}</strong><span class="app-card-status"${building ? ` data-building-status="${escapeAttr(app.id)}"` : ''}>${escapeHtml(status)}</span></div>
+      <div class="app-card-meta">${building ? '…' : `v${Math.max(1, app.versions?.length || 1)}${pin}`}</div>
+    </button>`;
+  }).join('');
   libraryEl.querySelectorAll('[data-app-id]').forEach((button) => {
-    button.addEventListener('click', () => openApp(button.dataset.appId));
+    button.addEventListener('click', () => { if (button.dataset.status !== 'building') openApp(button.dataset.appId); });
   });
 }
 
 function showHome() {
   activeAppId = null;
   localStorage.removeItem(ACTIVE_KEY);
+  closeAppMenu();
   appView.hidden = true;
   homeView.hidden = false;
   preview.srcdoc = '';
@@ -199,7 +236,7 @@ function showHome() {
 
 function openApp(id) {
   const app = apps.find((item) => item.id === id);
-  if (!app) return;
+  if (!app || app.status === 'building') return;
   activeAppId = id;
   localStorage.setItem(ACTIVE_KEY, id);
   homeView.hidden = true;
@@ -221,14 +258,14 @@ function closeModify() { modifySheet.hidden = true; }
 async function createApp(rawPrompt) {
   const request = String(rawPrompt || '').trim();
   if (!request || busy || !ensureGeminiReady()) return;
-  setBusy(true, 'Building your app', 'Gemini is building the first version…');
   const app = {
-    id: createId(), name: deriveName(request), icon: '✦', summary: request, originalPrompt: request,
+    id: createId(), name: deriveName(request), icon: '✦', summary: request, originalPrompt: request, status: 'building',
     model: selectedModel(), html: '', versions: [], createdAt: Date.now(), updatedAt: Date.now()
   };
   apps.unshift(app);
-  activeAppId = app.id;
   saveApps();
+  renderLibrary();
+  setBusy(true, 'Building your app', 'Gemini is building the first version…');
   try {
     const result = await runForgeTurn(buildCreatePrompt(request), app.model);
     applyForgeResult(app, result, request);
@@ -238,7 +275,7 @@ async function createApp(rawPrompt) {
   } catch (error) {
     apps = apps.filter((item) => item.id !== app.id);
     saveApps();
-    activeAppId = null;
+    renderLibrary();
     showToast(error.message || 'Build failed', true);
   } finally { setBusy(false); }
 }
@@ -259,6 +296,117 @@ async function modifyApp(rawRequest) {
     showToast(error.message || 'Update failed', true);
   } finally { setBusy(false); }
 }
+
+function menuLanguage() {
+  return document.documentElement.dataset.uiLanguage || localStorage.getItem('crew-builder.ui-language') || 'zh-TW';
+}
+
+function menuCopy() {
+  return menuLanguage() === 'en'
+    ? { renamePrompt: 'New app name', deleteConfirm: 'Delete this app? This cannot be undone.', copied: 'App duplicated', renamed: 'App renamed', deleted: 'App deleted', pinned: 'App pinned', unpinned: 'App unpinned' }
+    : { renamePrompt: '輸入新的工具名稱', deleteConfirm: '確定刪除這個工具？刪除後無法復原。', copied: '已建立副本', renamed: '已重新命名', deleted: '已刪除工具', pinned: '已釘選工具', unpinned: '已取消釘選' };
+}
+
+function syncAppMenu() {
+  const app = getActiveApp();
+  if (!app) return;
+  const pinButton = el('pinAppBtn');
+  const pinLabel = pinButton?.querySelector('span');
+  if (pinLabel) pinLabel.textContent = app.pinned ? (menuLanguage() === 'en' ? 'Unpin app' : '取消釘選') : (menuLanguage() === 'en' ? 'Pin app' : '釘選工具');
+  const eyebrow = el('appMenuEyebrow');
+  if (eyebrow) eyebrow.textContent = app.name || 'APP';
+}
+
+function openAppMenu(event) {
+  event?.preventDefault();
+  const app = getActiveApp();
+  if (!app || app.status === 'building') return;
+  window.CrewBuilderUX?.syncMenuLanguage?.();
+  syncAppMenu();
+  if (appMenuSheet) appMenuSheet.hidden = false;
+}
+
+function closeAppMenu() {
+  if (appMenuSheet) appMenuSheet.hidden = true;
+}
+
+function renameActiveApp() {
+  const app = getActiveApp();
+  if (!app) return;
+  const copy = menuCopy();
+  const name = window.prompt(copy.renamePrompt, app.name || '');
+  if (!name || !name.trim()) return;
+  app.name = name.trim();
+  app.updatedAt = Date.now();
+  saveApps();
+  renderLibrary();
+  appTitle.textContent = app.name;
+  syncAppMenu();
+  closeAppMenu();
+  showToast(copy.renamed);
+}
+
+function duplicateActiveApp() {
+  const app = getActiveApp();
+  if (!app) return;
+  const now = Date.now();
+  const clone = JSON.parse(JSON.stringify(app));
+  clone.id = createId();
+  clone.name = (app.name || 'App') + (menuLanguage() === 'en' ? ' Copy' : ' 副本');
+  clone.createdAt = now;
+  clone.updatedAt = now;
+  clone.status = 'ready';
+  clone.pinned = false;
+  apps.unshift(clone);
+  saveApps();
+  renderLibrary();
+  closeAppMenu();
+  showToast(menuCopy().copied);
+}
+
+function toggleActivePin() {
+  const app = getActiveApp();
+  if (!app) return;
+  app.pinned = !app.pinned;
+  app.updatedAt = Date.now();
+  saveApps();
+  renderLibrary();
+  syncAppMenu();
+  showToast(app.pinned ? menuCopy().pinned : menuCopy().unpinned);
+}
+
+function deleteActiveApp() {
+  const app = getActiveApp();
+  if (!app) return;
+  const copy = menuCopy();
+  if (!window.confirm(copy.deleteConfirm)) return;
+  const id = app.id;
+  apps = apps.filter((item) => item.id !== id);
+  saveApps();
+  localStorage.removeItem(ACTIVE_KEY);
+  localStorage.removeItem(RUNTIME_PREFIX + id);
+  localStorage.removeItem(LEGACY_RUNTIME_PREFIX + id);
+  closeAppMenu();
+  if (activeAppId === id) showHome();
+  else renderLibrary();
+  showToast(copy.deleted);
+}
+
+function updateBuildingProgress(seconds, label, unit) {
+  document.querySelectorAll('[data-building-status]').forEach((node) => {
+    node.textContent = label + ' · ' + seconds + unit;
+  });
+}
+
+window.CrewBuilder = {
+  getActiveApp,
+  renameActiveApp,
+  duplicateActiveApp,
+  toggleActivePin,
+  deleteActiveApp,
+  updateBuildingProgress,
+  syncAppMenu
+};
 
 async function runForgeTurn(prompt, model) {
   const first = await window.CrewAI.generate(prompt, model || 'auto');
@@ -315,6 +463,7 @@ function applyForgeResult(app, result, request) {
   const html = extractHtml(result.text);
   if (!html) throw new Error('Gemini did not return a runnable HTML app.');
   app.html = html;
+  app.status = 'ready';
   app.model = result.model || app.model || selectedModel();
   app.updatedAt = Date.now();
   app.name = extractAppName(html) || app.name;
@@ -322,6 +471,7 @@ function applyForgeResult(app, result, request) {
   app.versions.push({ html, request, model: app.model, createdAt: Date.now() });
   if (app.versions.length > MAX_VERSIONS) app.versions.splice(0, app.versions.length - MAX_VERSIONS);
   saveApps();
+  renderLibrary();
 }
 
 function undoActiveApp() {
@@ -467,6 +617,7 @@ function setBusy(value, title = '', detail = '') {
   if (detail) statusDetail.textContent = detail;
   forgeBtn.disabled = value;
   modifyBtn.disabled = value;
+  el('modifyOpenBtn').disabled = value;
 }
 let toastTimer = null;
 function showToast(message, isError = false) {

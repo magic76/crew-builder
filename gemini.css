@@ -17,3 +17,23 @@
 .live-btn.connecting .live-dot { animation:pulse 1s infinite; }
 .live-btn.active { border-color:rgba(158,255,199,.45); background:rgba(158,255,199,.12); color:#b9ffd5; }
 .live-btn.active .live-dot { background:#9effc7; box-shadow:0 0 0 5px rgba(158,255,199,.1); animation:pulse 1.25s infinite; }
+
+/* Build progress is informational; it must not capture the app viewport. */
+.status-backdrop {
+  position: fixed;
+  inset: auto 12px calc(92px + var(--safe-bottom));
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: none;
+}
+.status-card {
+  width: min(420px, 100%);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .3);
+  pointer-events: none;
+}
+.app-card.building { opacity: .82; cursor: wait; }
