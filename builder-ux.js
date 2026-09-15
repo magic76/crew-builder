@@ -10,6 +10,7 @@
   const elapsed = el('buildElapsed');
   let startedAt = 0;
   let timer = null;
+  let currentStep = '';
 
   const copy = {
     en: {
@@ -30,11 +31,7 @@
   const load = () => { try { const v = JSON.parse(localStorage.getItem(APPS_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch (_) { return []; } };
   const save = (apps) => localStorage.setItem(APPS_KEY, JSON.stringify(apps));
   const activeId = () => localStorage.getItem(ACTIVE_KEY);
-  const toast = (text) => { const node = el('toast'); if (!node) return; node.textContent = text; node.hidden = false; clearTimeout(node.__uxTimer); node.__uxTimer = setTimeout(() => node.hidden = true, 1800); };
-  const reloadBuilder = (openId = null) => {
-    if (openId) localStorage.setItem(ACTIVE_KEY, openId); else localStorage.removeItem(ACTIVE_KEY);
-    location.reload();
-  };
+  const reloadBuilder = (openId = null) => { if (openId) localStorage.setItem(ACTIVE_KEY, openId); else localStorage.removeItem(ACTIVE_KEY); location.reload(); };
 
   function syncMenuLanguage() {
     el('appMenuTitle').textContent = t('manage');
@@ -43,91 +40,50 @@
     el('deleteAppBtn').querySelector('span').textContent = t('del');
     document.querySelector('[data-step="prepare"] span').textContent = t('preparing');
     document.querySelector('[data-step="generate"] span').textContent = t('generating');
-    document.querySelector('[data-step="validate"] span').textContent = t('validating');
+    document.querySelector('[data-step="validate"] span').textContent = currentStep === 'repair' ? t('repairing') : t('validating');
     document.querySelector('[data-step="ready"] span').textContent = t('ready');
   }
 
-  function openMenu(event) {
-    event.preventDefault(); event.stopImmediatePropagation();
-    const app = load().find((item) => item.id === activeId());
-    if (!app) return;
-    syncMenuLanguage();
-    el('appMenuEyebrow').textContent = app.name || 'APP';
-    menu.hidden = false;
-  }
+  function openMenu(event) { event.preventDefault(); event.stopImmediatePropagation(); const app = load().find((item) => item.id === activeId()); if (!app) return; syncMenuLanguage(); el('appMenuEyebrow').textContent = app.name || 'APP'; menu.hidden = false; }
   function closeMenu() { menu.hidden = true; }
+  function rename() { const id=activeId(),apps=load(),app=apps.find(item=>item.id===id);if(!app)return;const name=window.prompt(t('renamePrompt'),app.name||'');if(!name||!name.trim())return;app.name=name.trim();app.updatedAt=Date.now();save(apps);reloadBuilder(id); }
+  function duplicate() { const id=activeId(),apps=load(),app=apps.find(item=>item.id===id);if(!app)return;const now=Date.now(),clone=JSON.parse(JSON.stringify(app));clone.id=crypto.randomUUID?crypto.randomUUID():`builder_${now}_${Math.random().toString(36).slice(2,8)}`;clone.name=`${app.name||'App'}${lang()==='zh-TW'?' 副本':' Copy'}`;clone.createdAt=now;clone.updatedAt=now;apps.unshift(clone);save(apps);reloadBuilder(clone.id); }
+  function remove() { const id=activeId();if(!id||!window.confirm(t('deleteConfirm')))return;save(load().filter(item=>item.id!==id));reloadBuilder(null); }
 
-  function rename() {
-    const id = activeId(); const apps = load(); const app = apps.find((item) => item.id === id); if (!app) return;
-    const name = window.prompt(t('renamePrompt'), app.name || '');
-    if (!name || !name.trim()) return;
-    app.name = name.trim(); app.updatedAt = Date.now(); save(apps);
-    reloadBuilder(id);
-  }
-  function duplicate() {
-    const id = activeId(); const apps = load(); const app = apps.find((item) => item.id === id); if (!app) return;
-    const now = Date.now(); const clone = JSON.parse(JSON.stringify(app));
-    clone.id = crypto.randomUUID ? crypto.randomUUID() : `builder_${now}_${Math.random().toString(36).slice(2,8)}`;
-    clone.name = `${app.name || 'App'}${lang() === 'zh-TW' ? ' 副本' : ' Copy'}`; clone.createdAt = now; clone.updatedAt = now;
-    apps.unshift(clone); save(apps); reloadBuilder(clone.id);
-  }
-  function remove() {
-    const id = activeId(); if (!id || !window.confirm(t('deleteConfirm'))) return;
-    save(load().filter((item) => item.id !== id)); reloadBuilder(null);
-  }
-
-  const model = el('modelSelect'); if (model) model.value = 'auto';
-  localStorage.setItem('crew-builder.gemini-model', 'auto');
-
-  function injectLanguage(event) {
-    const target = event.target;
-    const isBuildClick = target?.closest?.('#forgeBtn');
-    const isModifyClick = target?.closest?.('#modifyBtn');
-    const isShortcut = event.type === 'keydown' && (event.metaKey || event.ctrlKey) && event.key === 'Enter' && target === el('promptInput');
-    const input = isModifyClick ? el('modifyInput') : ((isBuildClick || isShortcut) ? el('promptInput') : null);
-    if (!input || input.dataset.languageInjected === '1') return;
-    const original = input.value;
-    input.value = `${original}\n\n[CREW BUILDER LANGUAGE]\n${t('languageRule')}`;
-    input.dataset.languageInjected = '1';
-    queueMicrotask(() => { input.value = original; delete input.dataset.languageInjected; });
-  }
-  document.addEventListener('click', injectLanguage, true);
-  document.addEventListener('keydown', injectLanguage, true);
+  const model=el('modelSelect');if(model)model.value='auto';localStorage.setItem('crew-builder.gemini-model','auto');
+  function injectLanguage(event) { const target=event.target,isBuildClick=target?.closest?.('#forgeBtn'),isModifyClick=target?.closest?.('#modifyBtn'),isShortcut=event.type==='keydown'&&(event.metaKey||event.ctrlKey)&&event.key==='Enter'&&target===el('promptInput');const input=isModifyClick?el('modifyInput'):((isBuildClick||isShortcut)?el('promptInput'):null);if(!input||input.dataset.languageInjected==='1')return;const original=input.value;input.value=`${original}\n\n[CREW BUILDER LANGUAGE]\n${t('languageRule')}`;input.dataset.languageInjected='1';queueMicrotask(()=>{input.value=original;delete input.dataset.languageInjected;}); }
+  document.addEventListener('click',injectLanguage,true);document.addEventListener('keydown',injectLanguage,true);
 
   function setStep(step) {
-    const order = ['prepare','generate','validate','ready'];
-    const active = Math.max(0, order.indexOf(step));
-    document.querySelectorAll('#buildSteps [data-step]').forEach((node, index) => {
-      node.classList.toggle('done', index < active); node.classList.toggle('active', index === active);
-      node.firstChild.textContent = index < active ? '✓ ' : (index === active ? '● ' : '○ ');
+    if (currentStep === step) return;
+    currentStep = step;
+    const visualStep = step === 'repair' ? 'validate' : step;
+    const order=['prepare','generate','validate','ready'],active=Math.max(0,order.indexOf(visualStep));
+    document.querySelectorAll('#buildSteps [data-step]').forEach((node,index)=>{
+      node.classList.toggle('done',index<active);node.classList.toggle('active',index===active);
+      const mark=index<active?'✓ ':(index===active?'● ':'○ ');
+      if(node.firstChild?.textContent!==mark)node.firstChild.textContent=mark;
     });
+    const validating=document.querySelector('[data-step="validate"] span');
+    if(validating)validating.textContent=step==='repair'?t('repairing'):t('validating');
   }
   function startProgress() {
-    startedAt = Date.now(); syncMenuLanguage(); setStep('prepare');
-    clearInterval(timer); timer = setInterval(() => {
-      const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000)); elapsed.textContent = `${seconds}${t('seconds')}`;
-      if (seconds >= 1 && seconds < 5) setStep('generate');
-      else if (seconds >= 5) setStep('validate');
-    }, 500);
+    if(timer)return;
+    startedAt=Date.now();currentStep='';syncMenuLanguage();setStep('prepare');
+    const tick=()=>{const seconds=Math.max(0,Math.floor((Date.now()-startedAt)/1000));if(elapsed)elapsed.textContent=`${seconds}${t('seconds')}`;if(currentStep!=='repair'){if(seconds>=1&&seconds<5)setStep('generate');else if(seconds>=5)setStep('validate');}};
+    tick();timer=setInterval(tick,500);
   }
-  function stopProgress() { clearInterval(timer); timer = null; setStep('ready'); }
-  const observer = new MutationObserver(() => {
-    if (!status) return;
-    if (!status.hidden && !timer) startProgress();
-    if (status.hidden && timer) stopProgress();
-    const text = `${statusTitle?.textContent || ''} ${statusDetail?.textContent || ''}`.toLowerCase();
-    if (!status.hidden && (text.includes('repair') || text.includes('修正'))) {
-      setStep('validate'); const validating = document.querySelector('[data-step="validate"] span'); if (validating) validating.textContent = t('repairing');
-    }
-  });
-  if (status) observer.observe(status, { attributes: true, childList: true, subtree: true, attributeFilter: ['hidden'] });
+  function stopProgress() { if(timer){clearInterval(timer);timer=null;}setStep('ready'); }
+  function inspectStatusText() { if(!status||status.hidden)return;const text=`${statusTitle?.textContent||''} ${statusDetail?.textContent||''}`.toLowerCase();if(text.includes('repair')||text.includes('修正'))setStep('repair'); }
 
-  el('versionBtn')?.addEventListener('click', openMenu, true);
-  el('appMenuCloseBtn')?.addEventListener('click', closeMenu);
-  menu?.addEventListener('click', (event) => { if (event.target === menu) closeMenu(); });
-  el('renameAppBtn')?.addEventListener('click', rename);
-  el('duplicateAppBtn')?.addEventListener('click', duplicate);
-  el('deleteAppBtn')?.addEventListener('click', remove);
-  el('uiLanguageSelect')?.addEventListener('change', () => setTimeout(syncMenuLanguage, 0));
-  syncMenuLanguage();
+  // Observe visibility separately from status copy. The old subtree observer watched the
+  // progress labels that it also modified, causing a MutationObserver feedback loop that
+  // could starve the interval and make the UI appear frozen at validation.
+  if(status){
+    new MutationObserver(()=>{if(status.hidden)stopProgress();else startProgress();}).observe(status,{attributes:true,attributeFilter:['hidden']});
+    if(statusTitle)new MutationObserver(inspectStatusText).observe(statusTitle,{childList:true,characterData:true,subtree:true});
+    if(statusDetail)new MutationObserver(inspectStatusText).observe(statusDetail,{childList:true,characterData:true,subtree:true});
+  }
+
+  el('versionBtn')?.addEventListener('click',openMenu,true);el('appMenuCloseBtn')?.addEventListener('click',closeMenu);menu?.addEventListener('click',event=>{if(event.target===menu)closeMenu();});el('renameAppBtn')?.addEventListener('click',rename);el('duplicateAppBtn')?.addEventListener('click',duplicate);el('deleteAppBtn')?.addEventListener('click',remove);el('uiLanguageSelect')?.addEventListener('change',()=>setTimeout(syncMenuLanguage,0));syncMenuLanguage();
 })();
