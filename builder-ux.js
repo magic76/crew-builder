@@ -73,11 +73,9 @@
     setTimeout(() => el('backBtn')?.click(), 80);
   }
 
-  // The core builder intentionally always uses its native fallback chain. Keep its hidden selector pinned to auto.
   const model = el('modelSelect'); if (model) model.value = 'auto';
   localStorage.setItem('crew-builder.gemini-model', 'auto');
 
-  // Add the selected interface language to create/modify requests without changing what the user sees.
   function injectLanguage(event) {
     const target = event.target;
     const isBuildClick = target?.closest?.('#forgeBtn');
@@ -104,22 +102,30 @@
   function startProgress() {
     startedAt = Date.now(); syncMenuLanguage(); setStep('prepare');
     clearInterval(timer); timer = setInterval(() => {
-      const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000)); elapsed.textContent = `${seconds}${t('seconds')}`;
+      const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+      if (elapsed) elapsed.textContent = `${seconds}${t('seconds')}`;
       if (seconds >= 1 && seconds < 5) setStep('generate');
       else if (seconds >= 5) setStep('validate');
     }, 500);
   }
   function stopProgress() { clearInterval(timer); timer = null; setStep('ready'); }
-  const observer = new MutationObserver(() => {
-    if (!status) return;
-    if (!status.hidden && !timer) startProgress();
-    if (status.hidden && timer) stopProgress();
+  function syncRepairState() {
+    if (!status || status.hidden) return;
     const text = `${statusTitle?.textContent || ''} ${statusDetail?.textContent || ''}`.toLowerCase();
-    if (!status.hidden && (text.includes('repair') || text.includes('修正'))) {
-      setStep('validate'); const validating = document.querySelector('[data-step="validate"] span'); if (validating) validating.textContent = t('repairing');
-    }
-  });
-  if (status) observer.observe(status, { attributes: true, childList: true, subtree: true, attributeFilter: ['hidden'] });
+    const validating = document.querySelector('[data-step="validate"] span');
+    if (validating) validating.textContent = (text.includes('repair') || text.includes('修正')) ? t('repairing') : t('validating');
+  }
+
+  // Only observe the overlay visibility. Observing the whole subtree caused a feedback loop:
+  // setStep() changed child nodes -> MutationObserver fired -> setStep() changed them again.
+  if (status) {
+    new MutationObserver(() => {
+      if (!status.hidden && !timer) startProgress();
+      else if (status.hidden && timer) stopProgress();
+    }).observe(status, { attributes: true, attributeFilter: ['hidden'] });
+  }
+  if (statusTitle) new MutationObserver(syncRepairState).observe(statusTitle, { childList: true, characterData: true, subtree: true });
+  if (statusDetail) new MutationObserver(syncRepairState).observe(statusDetail, { childList: true, characterData: true, subtree: true });
 
   el('versionBtn')?.addEventListener('click', openMenu, true);
   el('appMenuCloseBtn')?.addEventListener('click', closeMenu);
