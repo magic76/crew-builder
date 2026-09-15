@@ -45,6 +45,7 @@ class MainActivity : Activity() {
         val nativeAdapter = assets.open("forge/native-adapter.js").bufferedReader().use { it.readText() }
         val liveRuntime = assets.open("forge/live-runtime.js").bufferedReader().use { it.readText() }
         val uiRuntime = assets.open("forge/ui-runtime.js").bufferedReader().use { it.readText() }
+        val builderUx = assets.open("forge/builder-ux.js").bufferedReader().use { it.readText() }
         val bundled = html
             .replace("<link rel=\"stylesheet\" href=\"./forge.css\" />", "<style>$css</style>")
             .replace("<link rel=\"stylesheet\" href=\"./gemini.css\" />", "<style>$geminiCss</style>")
@@ -52,6 +53,7 @@ class MainActivity : Activity() {
             .replace("<script src=\"./native-adapter.js\"></script>", "<script>$nativeAdapter</script>")
             .replace("<script src=\"./live-runtime.js\"></script>", "<script>$liveRuntime</script>")
             .replace("<script src=\"./ui-runtime.js\"></script>", "<script>$uiRuntime</script>")
+            .replace("<script src=\"./builder-ux.js\"></script>", "<script>$builderUx</script>")
         webView.loadDataWithBaseURL("https://app.crewbuilder.local/", bundled, "text/html", "UTF-8", null)
     }
 
