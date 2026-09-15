@@ -9,6 +9,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
 import android.os.SystemClock
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -37,6 +38,7 @@ class MainActivity : Activity(), SensorEventListener {
             settings.allowContentAccess = false
             settings.mediaPlaybackRequiresUserGesture = false
             addJavascriptInterface(nativeBridge, "CrewNative")
+            webChromeClient = WebChromeClient()
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val uri = request?.url ?: return false
