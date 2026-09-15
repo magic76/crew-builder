@@ -1,155 +1,53 @@
 (() => {
-  const UI_KEY = 'crew-builder.ui-language';
-  const el = (id) => document.getElementById(id);
-  const language = () => localStorage.getItem(UI_KEY) === 'en' ? 'en' : 'zh-TW';
-  const copy = {
-    en: {
-      explore: 'Explore ideas',
-      exploreSub: 'Tiny problems worth building an app for',
-      all: 'All',
-      daily: 'Daily',
-      family: 'Family',
-      work: 'Work',
-      travel: 'Travel',
-      health: 'Health',
-      fun: 'Fun',
-      improve: 'Improve this app',
-      native: 'Uses phone features'
-    },
-    'zh-TW': {
-      explore: '探索靈感',
-      exploreSub: '遇到這些小問題，就做一個 App 解決',
-      all: '全部',
-      daily: '日常',
-      family: '家庭',
-      work: '工作',
-      travel: '旅行',
-      health: '健康',
-      fun: '聚會',
-      improve: '改進這個工具',
-      native: '使用手機能力'
-    }
-  };
-  const t = (key) => copy[language()][key] || copy.en[key] || key;
-  const ideas = [
-    ['daily', '🍽️', 'Dinner decider', '晚餐選擇器', 'Pick tonight’s dinner from saved choices.', '從常吃的選項快速決定今晚吃什麼。', 'Make a dinner decision app with saved choices, random pick, history, and a no-repeat option.'],
-    ['family', '🏆', 'Kids reward board', '小孩獎勵板', 'Points, rewards and weekly wins.', '記錄小孩積分、獎勵與每週成果。', 'Make a kids reward board for two children with points, custom rewards, weekly reset, celebration, vibration and persistence.'],
-    ['work', '⏱️', 'Meeting timer', '會議控時器', 'Keep agenda sections on schedule.', '幫每個議程控時，避免會議超時。', 'Make a meeting agenda timer with editable sections, current section, overtime warning, vibration and total remaining time.'],
-    ['travel', '💸', 'Trip splitter', '旅行分帳', 'Track expenses and who owes whom.', '旅途中快速記帳並算出誰欠誰。', 'Make a trip expense splitter with people, payer, participants, balances, settlement suggestions and persistence.'],
-    ['health', '🏃', 'HIIT coach', 'HIIT 教練', 'Work/rest rounds with vibration.', '工作與休息回合、自動震動提醒。', 'Make a HIIT timer with editable work/rest, rounds, large controls, vibration, progress and pause/resume.'],
-    ['fun', '📱', 'Shake picker', '搖手機抽籤', 'Shake the phone to pick a person or choice.', '直接搖手機抽人或抽選項。', 'Make a shake-to-pick app. Let me edit choices and use crew.sensor.onShake when available, with a button fallback, vibration and history.'],
-    ['fun', '⚡', 'Reaction game', '反應力遊戲', 'Wait for the signal, then tap fast.', '等畫面變化後比誰最快點到。', 'Make a reaction-time game with random delay, false-start detection, best score and vibration.']
+  const UI_KEY='crew-builder.ui-language',el=id=>document.getElementById(id),language=()=>localStorage.getItem(UI_KEY)==='en'?'en':'zh-TW';
+  const copy={en:{explore:'Explore ideas',exploreSub:'Start with a proven idea or ask AI to invent a batch',all:'All',daily:'Daily',family:'Family',work:'Work',travel:'Travel',health:'Health',fun:'Fun',phone:'Phone powers',improve:'Improve this app',native:'Uses phone features',ideaPlaceholder:'A few words: walking, kids, Bangkok trip…',generate:'✨ Give me ideas',more:'✨ Another batch',aiTitle:'AI idea generator',phoneTitle:'Build with your phone',phoneSub:'Choose a capability and discover apps that feel native.'},'zh-TW':{explore:'探索靈感',exploreSub:'從精選範例開始，或只打幾個字讓 AI 發想一批',all:'全部',daily:'日常',family:'家庭',work:'工作',travel:'旅行',health:'健康',fun:'聚會',phone:'手機能力',improve:'改進這個工具',native:'使用手機能力',ideaPlaceholder:'輸入幾個字：走路、小孩、曼谷旅行…',generate:'✨ 給我靈感',more:'✨ 再來一批',aiTitle:'AI 靈感產生器',phoneTitle:'用手機能力做 App',phoneSub:'選一個手機能力，看看能做出什麼真正有趣的工具。'}};
+  const t=k=>copy[language()][k]||copy.en[k]||k;
+  const ideas=[
+    ['daily','🍽️','Dinner decider','晚餐選擇器','Pick dinner without repeating.','快速決定今晚吃什麼。','Make a dinner decision app with saved choices, random pick, history and no-repeat.'],
+    ['daily','💧','Water tracker','喝水追蹤','Simple daily hydration progress.','簡單記錄每天喝水進度。','Make a fast hydration tracker with daily goal, quick add buttons, history and persistence.'],
+    ['daily','🧹','Chore roulette','家事輪盤','Randomly assign today’s chores.','隨機分配今天的家事。','Make a household chore roulette with people, chores, fair history and persistence.'],
+    ['daily','🅿️','Where I parked','停車位置','Remember where the car is.','記住剛剛把車停在哪裡。','Make a parking helper using crew.location.get(), timestamp, notes and a clear saved-location screen.'],
+    ['family','🏆','Kids reward board','小孩獎勵板','Points, rewards and weekly wins.','記錄小孩積分、獎勵與每週成果。','Make a kids reward board with points, custom rewards, weekly reset, vibration and persistence.'],
+    ['family','🎲','Who goes first?','誰先來？','Fairly choose one person.','公平抽出誰先開始。','Make a playful person picker with editable names, animation, vibration, history and no-repeat mode.'],
+    ['family','📚','Reading streak','閱讀連續紀錄','Keep a family reading streak.','記錄全家的閱讀連續天數。','Make a family reading streak tracker with people, minutes, streaks, celebrations and persistence.'],
+    ['family','🎯','Weekend mission','週末任務','Pick a small family adventure.','抽一個週末親子小任務。','Make a weekend family mission picker with editable ideas, completed history and random selection.'],
+    ['work','⏱️','Meeting timer','會議控時器','Keep agenda sections on schedule.','幫每個議程控時，避免會議超時。','Make a meeting agenda timer with editable sections, overtime warning, vibration and remaining time.'],
+    ['work','🗳️','Quick vote','快速投票','Make a decision in the room.','現場快速完成一輪投票。','Make an offline quick voting app with choices, anonymous tap voting, reveal results and reset.'],
+    ['work','🍅','Focus sprint','專注衝刺','Run one focused work sprint.','快速開始一段專注工作。','Make a focus sprint timer with task, duration, pause, vibration, completion history and persistence.'],
+    ['work','📝','Standup cards','站會小卡','Track yesterday, today and blockers.','快速整理昨天、今天與阻礙。','Make a standup card app with yesterday/today/blockers, local persistence and share summary.'],
+    ['travel','💸','Trip splitter','旅行分帳','Track expenses and who owes whom.','旅途中快速記帳並算出誰欠誰。','Make a trip expense splitter with people, payer, participants, balances and settlement suggestions.'],
+    ['travel','🧳','Packing checklist','旅行打包清單','Never forget the small stuff.','旅行前快速確認行李。','Make a reusable packing checklist with categories, progress, templates and persistence.'],
+    ['travel','📍','Travel pin','旅行足跡','Save a memorable place instantly.','一鍵保存現在的位置與備註。','Make a travel pin journal using crew.location.get(), notes, timestamps and a chronological saved list.'],
+    ['travel','🗣️','Phrase cards','旅行短句卡','Keep useful phrases one tap away.','把常用旅行短句放在手邊。','Make an offline travel phrase-card app with categories, favorites and large readable cards.'],
+    ['health','🏃','HIIT coach','HIIT 教練','Work/rest rounds with vibration.','工作與休息回合、自動震動提醒。','Make a HIIT timer with editable work/rest, rounds, vibration, progress and pause/resume.'],
+    ['health','🧘','Stretch routine','伸展流程','Guide a short stretch break.','帶著使用者完成短時間伸展。','Make a stretch routine timer with editable moves, countdown, vibration and completion streak.'],
+    ['health','🚶','Walking challenge','走路挑戰','Turn a walk into a tiny challenge.','把散步變成一個小挑戰。','Make a walking challenge app with timed missions, checkpoints, vibration and session history.'],
+    ['health','😴','Sleep wind-down','睡前流程','A tiny checklist before bed.','建立簡單的睡前固定流程。','Make a bedtime wind-down checklist with configurable steps, streak and calm timer.'],
+    ['fun','📱','Shake picker','搖手機抽籤','Shake to pick a person or choice.','直接搖手機抽人或抽選項。','Make a shake-to-pick app using crew.sensor.onShake, button fallback, vibration and history.'],
+    ['fun','⚡','Reaction game','反應力遊戲','Wait for the signal, then tap fast.','等畫面變化後比誰最快點到。','Make a reaction-time game with random delay, false-start detection, best score and vibration.'],
+    ['fun','🎤','Party challenge','聚會挑戰','Draw quick party missions.','聚會時隨機抽小挑戰。','Make a party challenge picker with editable challenges, skip, history and shake-to-draw support.'],
+    ['fun','🎲','Pocket dice','口袋骰子','Shake your phone to roll.','搖手機直接擲骰子。','Make a polished dice app using crew.sensor.onShake with tap fallback, vibration, multiple dice and history.']
   ];
-
-  function ensureExplore() {
-    if (el('exploreSection')) return;
-    const library = document.querySelector('.library-section');
-    if (!library) return;
-    const section = document.createElement('section');
-    section.id = 'exploreSection';
-    section.className = 'explore-section';
-    section.innerHTML = '<div class="section-heading"><div><div class="eyebrow">IDEAS</div><h2 id="exploreTitle"></h2></div><span id="exploreSub"></span></div><div id="ideaFilters" class="idea-filters"></div><div id="ideaGrid" class="idea-grid"></div>';
-    library.after(section);
-    renderExplore('all');
-  }
-
-  function renderExplore(filter) {
-    const title = el('exploreTitle');
-    const sub = el('exploreSub');
-    const filters = el('ideaFilters');
-    const grid = el('ideaGrid');
-    if (!grid || !filters) return;
-    title.textContent = t('explore');
-    sub.textContent = t('exploreSub');
-    const selected = filter || 'all';
-    const categories = ['all', 'daily', 'family', 'work', 'travel', 'health', 'fun'];
-    filters.innerHTML = categories.map((category) => '<button class="idea-filter ' + (category === selected ? 'active' : '') + '" data-filter="' + category + '">' + t(category) + '</button>').join('');
-    filters.querySelectorAll('button').forEach((button) => {
-      button.onclick = () => renderExplore(button.dataset.filter);
-    });
-    const list = ideas.filter((idea) => selected === 'all' || idea[0] === selected);
-    grid.innerHTML = list.map((idea) => {
-      const index = ideas.indexOf(idea);
-      const native = idea[6].includes('crew.sensor') ? '<em>⌁ ' + t('native') + '</em>' : '';
-      return '<button class="idea-card" data-idea="' + index + '"><span class="idea-icon">' + idea[1] + '</span><strong>' + (language() === 'en' ? idea[2] : idea[3]) + '</strong><small>' + (language() === 'en' ? idea[4] : idea[5]) + '</small>' + native + '</button>';
-    }).join('');
-    grid.querySelectorAll('[data-idea]').forEach((button) => {
-      button.onclick = () => {
-        const input = el('promptInput');
-        input.value = ideas[Number(button.dataset.idea)][6];
-        input.focus();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      };
-    });
-  }
-
-  function syncMenu() {
-    const improve = el('improveAppBtn')?.querySelector('span');
-    if (improve) improve.textContent = t('improve');
-    window.CrewBuilder?.syncAppMenu?.();
-  }
-
-  function enhanceMenu() {
-    const actions = document.querySelector('.app-menu-actions');
-    if (!actions || el('improveAppBtn')) return;
-
-    const improve = document.createElement('button');
-    improve.id = 'improveAppBtn';
-    improve.className = 'menu-action improve-action';
-    improve.innerHTML = '✦ <span></span>';
-    actions.prepend(improve);
-
-    const pin = document.createElement('button');
-    pin.id = 'pinAppBtn';
-    pin.className = 'menu-action';
-    pin.innerHTML = '⌁ <span></span>';
-    actions.insertBefore(pin, el('deleteAppBtn'));
-
-    improve.onclick = () => {
-      const input = el('modifyInput');
-      el('appMenuCloseBtn')?.click();
-      el('modifyOpenBtn')?.click();
-      setTimeout(() => {
-        input.value = language() === 'en'
-          ? 'Review this app and improve it with 2–3 useful features that fit its purpose. Keep current behavior and data. Use Crew native capabilities when they genuinely help.'
-          : '檢查這個工具，依照用途加入 2～3 個真正實用的改進。保留目前功能與資料；Crew 手機原生能力真的有幫助時就使用。';
-        input.focus();
-      }, 80);
-    };
-    // forge.js owns the app state and persistence; this button only delegates.
-    pin.onclick = () => window.CrewBuilder?.toggleActivePin?.();
-    syncMenu();
-  }
-
-  function addNativePromptContext(event) {
-    const target = event.target;
-    if (!target?.closest?.('#forgeBtn') && !target?.closest?.('#modifyBtn')) return;
-    const input = target.closest('#modifyBtn') ? el('modifyInput') : el('promptInput');
-    if (!input || input.dataset.nativeInjected) return;
-    const original = input.value;
-    input.value = original + '\n\n[CREW NATIVE CAPABILITIES]\nWhen useful, generated apps may use crew.vibrate(), crew.share(), crew.sensor.onShake(handler), crew.sensor.accelerometer(handler), await crew.location.get(), and await crew.clipboard.write(text). onShake receives {strength,timestamp}; accelerometer receives {x,y,z,timestamp}. Always provide a normal touch fallback for sensor-based actions.';
-    input.dataset.nativeInjected = '1';
-    queueMicrotask(() => {
-      input.value = original;
-      delete input.dataset.nativeInjected;
-    });
-  }
-
-  // Extend each generated iframe with native-capability APIs without changing stored app HTML.
-  if (typeof window.injectRuntimeBridge === 'function') {
-    const base = window.injectRuntimeBridge;
-    window.injectRuntimeBridge = function (html, appId) {
-      const output = base(html, appId);
-      const extension = '<script>(()=>{const shake=new Set(),accel=new Set();addEventListener("message",e=>{const m=e.data||{};if(!m.__crewForge||m.type!=="native-sensor")return;const set=m.sensor==="shake"?shake:m.sensor==="accelerometer"?accel:null;if(set)set.forEach(fn=>{try{fn(m.payload)}catch(_){}})});crew.sensor={onShake(fn){if(typeof fn==="function")shake.add(fn);return()=>shake.delete(fn)},accelerometer(fn){if(typeof fn==="function")accel.add(fn);return()=>accel.delete(fn)}};crew.location={get:()=>{const id="crew_"+Date.now()+"_"+Math.random().toString(36).slice(2);return new Promise((resolve,reject)=>{const h=e=>{const m=e.data||{};if(m.__crewForge&&m.type==="response"&&m.id===id){removeEventListener("message",h);m.error?reject(new Error(m.error)):resolve(m.value)}};addEventListener("message",h);parent.postMessage({__crewForge:true,type:"request",id,appId:' + JSON.stringify(appId) + ',method:"location",payload:{}}, "*");setTimeout(()=>{removeEventListener("message",h);reject(new Error("Location request timed out"))},8000)})}};crew.clipboard={write:text=>{const id="crew_"+Date.now()+"_"+Math.random().toString(36).slice(2);parent.postMessage({__crewForge:true,type:"request",id,appId:' + JSON.stringify(appId) + ',method:"clipboard",payload:{text:String(text||"")}}, "*");return Promise.resolve(true)}}})();<\/script>';
-      return output.replace(/<\/head>/i, extension + '</head>');
-    };
-  }
-
-  document.addEventListener('click', addNativePromptContext, true);
-  el('uiLanguageSelect')?.addEventListener('change', () => setTimeout(() => {
-    renderExplore('all');
-    syncMenu();
-  }, 0));
-  ensureExplore();
-  enhanceMenu();
+  const capabilities=[
+    ['📳','Shake','搖一搖','crew.sensor.onShake','搖手機抽籤、骰子、聚會遊戲'],
+    ['🧭','Motion','動作感測','crew.sensor.accelerometer','傾斜控制、動作挑戰、平衡遊戲'],
+    ['📍','Location','位置','crew.location.get','停車位置、旅行足跡、戶外任務'],
+    ['📋','Clipboard','剪貼簿','crew.clipboard.write','文字整理、快速複製、格式轉換'],
+    ['📳','Vibration','震動','crew.vibrate','計時器、提醒、遊戲回饋'],
+    ['↗️','Share','分享','crew.share','結果卡、清單、分帳摘要']
+  ];
+  let aiIdeas=[],lastTopic='';
+  function ensureExplore(){if(el('exploreSection'))return;const library=document.querySelector('.library-section');if(!library)return;const s=document.createElement('section');s.id='exploreSection';s.className='explore-section';s.innerHTML='<div class="section-heading"><div><div class="eyebrow">IDEAS</div><h2 id="exploreTitle"></h2></div><span id="exploreSub"></span></div><div class="ai-idea-box"><strong id="aiIdeaTitle"></strong><div class="ai-idea-row"><input id="ideaPrompt" class="idea-prompt"/><button id="ideaGenerate" class="primary-btn"></button></div></div><div id="aiIdeaGrid" class="idea-grid ai-results"></div><div id="ideaFilters" class="idea-filters"></div><div id="ideaGrid" class="idea-grid"></div><div class="phone-ideas"><div class="section-heading"><div><div class="eyebrow">NATIVE</div><h2 id="phoneIdeaTitle"></h2></div><span id="phoneIdeaSub"></span></div><div id="phoneCapabilityGrid" class="capability-grid"></div></div>';library.after(s);bindIdeaAI();renderExplore('all');renderCapabilities()}
+  function renderExplore(filter){const title=el('exploreTitle'),sub=el('exploreSub'),filters=el('ideaFilters'),grid=el('ideaGrid');if(!grid||!filters)return;title.textContent=t('explore');sub.textContent=t('exploreSub');el('aiIdeaTitle').textContent=t('aiTitle');el('ideaPrompt').placeholder=t('ideaPlaceholder');el('ideaGenerate').textContent=aiIdeas.length?t('more'):t('generate');const selected=filter||'all',cats=['all','daily','family','work','travel','health','fun'];filters.innerHTML=cats.map(c=>`<button class="idea-filter ${c===selected?'active':''}" data-filter="${c}">${t(c)}</button>`).join('');filters.querySelectorAll('button').forEach(b=>b.onclick=()=>renderExplore(b.dataset.filter));const list=ideas.filter(i=>selected==='all'||i[0]===selected);grid.innerHTML=list.map(i=>{const idx=ideas.indexOf(i),native=/crew\.(sensor|location|clipboard|vibrate|share)/.test(i[6])?`<em>⌁ ${t('native')}</em>`:'';return `<button class="idea-card" data-idea="${idx}"><span class="idea-icon">${i[1]}</span><strong>${language()==='en'?i[2]:i[3]}</strong><small>${language()==='en'?i[4]:i[5]}</small>${native}</button>`}).join('');grid.querySelectorAll('[data-idea]').forEach(b=>b.onclick=()=>usePrompt(ideas[Number(b.dataset.idea)][6]))}
+  function usePrompt(prompt){const input=el('promptInput');input.value=prompt;input.focus();window.scrollTo({top:0,behavior:'smooth'})}
+  function bindIdeaAI(){el('ideaGenerate').onclick=generateIdeas;el('ideaPrompt').addEventListener('keydown',e=>{if(e.key==='Enter')generateIdeas()})}
+  async function generateIdeas(){const topic=el('ideaPrompt').value.trim()||lastTopic;if(!topic||!window.CrewAI?.available?.()||!window.CrewAI?.hasApiKey?.())return;lastTopic=topic;const btn=el('ideaGenerate');btn.disabled=true;btn.textContent='…';try{const lang=language()==='en'?'English':'Traditional Chinese (Taiwan)';const prompt=`You are an inventive mobile mini-app product designer. The user gives a tiny theme: "${topic}". Invent exactly 6 diverse, immediately useful or delightful mini-app ideas for Crew Builder. Prefer ideas that can be used instantly on a phone. Available native capabilities: shake/accelerometer, location, vibration, clipboard and share. Use native capabilities only when genuinely useful. Respond ONLY with a JSON array, no markdown. Each object: {"icon":"one emoji","title":"short title in ${lang}","description":"one short sentence in ${lang}","prompt":"a detailed English build instruction mentioning relevant crew APIs if needed"}. Avoid login, payments, medical diagnosis and network-dependent ideas.`;const r=await window.CrewAI.generate(prompt,'auto');const raw=String(r.text||'').replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();const parsed=JSON.parse(raw);aiIdeas=Array.isArray(parsed)?parsed.slice(0,6):[];renderAiIdeas()}catch(e){if(window.showToast)window.showToast(e.message||'Could not generate ideas',true)}finally{btn.disabled=false;btn.textContent=t('more')}}
+  function renderAiIdeas(){const grid=el('aiIdeaGrid');grid.innerHTML=aiIdeas.map((i,n)=>`<button class="idea-card ai-idea-card" data-ai="${n}"><span class="idea-icon">${i.icon||'✦'}</span><strong>${escapeText(i.title)}</strong><small>${escapeText(i.description)}</small><em>✦ AI</em></button>`).join('');grid.querySelectorAll('[data-ai]').forEach(b=>b.onclick=()=>usePrompt(aiIdeas[Number(b.dataset.ai)]?.prompt||''))}
+  function escapeText(v){const d=document.createElement('div');d.textContent=String(v||'');return d.innerHTML}
+  function renderCapabilities(){el('phoneIdeaTitle').textContent=t('phoneTitle');el('phoneIdeaSub').textContent=t('phoneSub');const g=el('phoneCapabilityGrid');g.innerHTML=capabilities.map((c,n)=>`<button class="capability-card" data-cap="${n}"><span>${c[0]}</span><strong>${language()==='en'?c[1]:c[2]}</strong><small>${language()==='en'?c[3]:c[4]}</small></button>`).join('');g.querySelectorAll('[data-cap]').forEach(b=>b.onclick=()=>{const c=capabilities[Number(b.dataset.cap)];el('ideaPrompt').value=language()==='en'?`creative apps using ${c[1]} (${c[3]})`:c[4];lastTopic=el('ideaPrompt').value;generateIdeas();el('exploreSection').scrollIntoView({behavior:'smooth'})})}
+  function syncMenu(){const improve=el('improveAppBtn')?.querySelector('span');if(improve)improve.textContent=t('improve');window.CrewBuilder?.syncAppMenu?.()}
+  function enhanceMenu(){const actions=document.querySelector('.app-menu-actions');if(!actions||el('improveAppBtn'))return;const improve=document.createElement('button');improve.id='improveAppBtn';improve.className='menu-action improve-action';improve.innerHTML='✦ <span></span>';actions.prepend(improve);const pin=document.createElement('button');pin.id='pinAppBtn';pin.className='menu-action';pin.innerHTML='⌁ <span></span>';actions.insertBefore(pin,el('deleteAppBtn'));improve.onclick=()=>{const input=el('modifyInput');el('appMenuCloseBtn')?.click();el('modifyOpenBtn')?.click();setTimeout(()=>{input.value=language()==='en'?'Review this app and improve it with 2–3 useful features that fit its purpose. Keep current behavior and data. Use Crew native capabilities when they genuinely help.':'檢查這個工具，依照用途加入 2～3 個真正實用的改進。保留目前功能與資料；Crew 手機原生能力真的有幫助時就使用。';input.focus()},80)};pin.onclick=()=>window.CrewBuilder?.toggleActivePin?.();syncMenu()}
+  function addNativePromptContext(event){const target=event.target;if(!target?.closest?.('#forgeBtn')&&!target?.closest?.('#modifyBtn'))return;const input=target.closest('#modifyBtn')?el('modifyInput'):el('promptInput');if(!input||input.dataset.nativeInjected)return;const original=input.value;input.value=original+'\n\n[CREW NATIVE CAPABILITIES]\nWhen useful, generated apps may use crew.vibrate(), crew.share(), crew.sensor.onShake(handler), crew.sensor.accelerometer(handler), await crew.location.get(), and await crew.clipboard.write(text). Always provide a normal touch fallback for sensor-based actions.';input.dataset.nativeInjected='1';queueMicrotask(()=>{input.value=original;delete input.dataset.nativeInjected})}
+  if(typeof window.injectRuntimeBridge==='function'){const base=window.injectRuntimeBridge;window.injectRuntimeBridge=function(html,appId){const output=base(html,appId);const extension='<script>(()=>{const shake=new Set(),accel=new Set();addEventListener("message",e=>{const m=e.data||{};if(!m.__crewForge||m.type!=="native-sensor")return;const set=m.sensor==="shake"?shake:m.sensor==="accelerometer"?accel:null;if(set)set.forEach(fn=>{try{fn(m.payload)}catch(_){}})});crew.sensor={onShake(fn){if(typeof fn==="function")shake.add(fn);return()=>shake.delete(fn)},accelerometer(fn){if(typeof fn==="function")accel.add(fn);return()=>accel.delete(fn)}};crew.location={get:()=>{const id="crew_"+Date.now()+"_"+Math.random().toString(36).slice(2);return new Promise((resolve,reject)=>{const h=e=>{const m=e.data||{};if(m.__crewForge&&m.type==="response"&&m.id===id){removeEventListener("message",h);m.error?reject(new Error(m.error)):resolve(m.value)}};addEventListener("message",h);parent.postMessage({__crewForge:true,type:"request",id,appId:'+JSON.stringify(appId)+',method:"location",payload:{}},"*");setTimeout(()=>{removeEventListener("message",h);reject(new Error("Location request timed out"))},8000)})}};crew.clipboard={write:text=>{const id="crew_"+Date.now()+"_"+Math.random().toString(36).slice(2);parent.postMessage({__crewForge:true,type:"request",id,appId:'+JSON.stringify(appId)+',method:"clipboard",payload:{text:String(text||"")}},"*");return Promise.resolve(true)}}})();<\/script>';return output.replace(/<\/head>/i,extension+'</head>')}}
+  document.addEventListener('click',addNativePromptContext,true);el('uiLanguageSelect')?.addEventListener('change',()=>setTimeout(()=>{renderExplore('all');renderCapabilities();syncMenu()},0));ensureExplore();enhanceMenu();
 })();
