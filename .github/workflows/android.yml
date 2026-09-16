@@ -20,6 +20,10 @@ jobs:
           node --check ui-runtime.js
           node --check builder-ux.js
           node --check builder-next.js
+          node --check language-prompts.js
+          node --check appspec-runtime.js
+          node --check generated-app-hardening.js
+          node --check build-experience.js
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
