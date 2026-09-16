@@ -179,6 +179,7 @@ class MainActivity : Activity(), SensorEventListener {
             .replace("<script src=\"./language-prompts.js\"></script>", "<script>${asset("language-prompts.js")}</script>")
             .replace("<script src=\"./appspec-runtime.js\"></script>", "<script>${asset("appspec-runtime.js")}</script>")
             .replace("<script src=\"./generated-app-hardening.js\"></script>", "<script>${asset("generated-app-hardening.js")}</script>")
+            .replace("<script src=\"./build-experience.js\"></script>", "<script>${asset("build-experience.js")}</script>")
         webView.loadDataWithBaseURL("https://app.crewbuilder.local/", bundled, "text/html", "UTF-8", null)
     }
 
