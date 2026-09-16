@@ -1,50 +1,76 @@
 package com.crewpocket.crewbuilder
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
 import android.os.SystemClock
-import android.webkit.WebResourceRequest
+import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import org.json.JSONObject
 import kotlin.math.sqrt
 
 class MainActivity : Activity(), SensorEventListener {
+    companion object { private const val WEB_GEOLOCATION_REQUEST = 702 }
+
     private lateinit var webView: WebView
     private lateinit var nativeBridge: ForgeNativeBridge
     private lateinit var deviceBridge: DeviceNativeBridge
+    private lateinit var locationBridge: LocationNativeBridge
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
     private var gyroscope: Sensor? = null
     private var lastSensorDispatch = 0L
     private var lastGyroDispatch = 0L
     private var lastShakeDispatch = 0L
+    private var pendingGeoOrigin: String? = null
+    private var pendingGeoCallback: GeolocationPermissions.Callback? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         nativeBridge = ForgeNativeBridge(this, { resolveGemini(it) }, { resolveLive(it) })
         deviceBridge = DeviceNativeBridge(this)
+        locationBridge = LocationNativeBridge(this) { resolveLocation(it) }
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+
         webView = WebView(this).apply {
             setBackgroundColor(android.graphics.Color.rgb(9, 12, 18))
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
+            settings.setGeolocationEnabled(true)
             settings.allowFileAccess = false
             settings.allowContentAccess = false
             settings.mediaPlaybackRequiresUserGesture = false
             addJavascriptInterface(nativeBridge, "CrewNative")
             addJavascriptInterface(deviceBridge, "CrewDevice")
-            webChromeClient = WebChromeClient()
+            addJavascriptInterface(locationBridge, "CrewLocation")
+            webChromeClient = object : WebChromeClient() {
+                override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
+                    if (origin.isNullOrBlank() || callback == null) return
+                    if (hasLocationPermission()) {
+                        callback.invoke(origin, true, false)
+                    } else {
+                        pendingGeoOrigin = origin
+                        pendingGeoCallback = callback
+                        requestPermissions(
+                            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                            WEB_GEOLOCATION_REQUEST
+                        )
+                    }
+                }
+            }
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val uri = request?.url ?: return false
@@ -56,6 +82,25 @@ class MainActivity : Activity(), SensorEventListener {
         }
         setContentView(webView)
         loadBuilder()
+    }
+
+    private fun hasLocationPermission() =
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == LocationNativeBridge.LOCATION_PERMISSION_REQUEST) {
+            locationBridge.onRequestPermissionsResult(requestCode)
+            return
+        }
+        if (requestCode != WEB_GEOLOCATION_REQUEST) return
+        val granted = hasLocationPermission()
+        val origin = pendingGeoOrigin
+        val callback = pendingGeoCallback
+        pendingGeoOrigin = null
+        pendingGeoCallback = null
+        if (origin != null && callback != null) callback.invoke(origin, granted, false)
     }
 
     override fun onResume() {
@@ -72,23 +117,49 @@ class MainActivity : Activity(), SensorEventListener {
     override fun onSensorChanged(event: SensorEvent?) {
         if (event == null || event.values.size < 3) return
         val now = SystemClock.elapsedRealtime()
-        val x = event.values[0]; val y = event.values[1]; val z = event.values[2]
+        val x = event.values[0]
+        val y = event.values[1]
+        val z = event.values[2]
+
         if (event.sensor.type == Sensor.TYPE_GYROSCOPE) {
             if (now - lastGyroDispatch >= 80) {
                 lastGyroDispatch = now
-                sendSensorEvent(JSONObject().put("type", "gyroscope").put("x", x).put("y", y).put("z", z).put("timestamp", System.currentTimeMillis()).toString())
+                sendSensorEvent(
+                    JSONObject()
+                        .put("type", "gyroscope")
+                        .put("x", x)
+                        .put("y", y)
+                        .put("z", z)
+                        .put("timestamp", System.currentTimeMillis())
+                        .toString()
+                )
             }
             return
         }
+
         if (event.sensor.type != Sensor.TYPE_ACCELEROMETER) return
         if (now - lastSensorDispatch >= 80) {
             lastSensorDispatch = now
-            sendSensorEvent(JSONObject().put("type", "accelerometer").put("x", x).put("y", y).put("z", z).put("timestamp", System.currentTimeMillis()).toString())
+            sendSensorEvent(
+                JSONObject()
+                    .put("type", "accelerometer")
+                    .put("x", x)
+                    .put("y", y)
+                    .put("z", z)
+                    .put("timestamp", System.currentTimeMillis())
+                    .toString()
+            )
         }
         val g = sqrt((x * x + y * y + z * z).toDouble()) / SensorManager.GRAVITY_EARTH
         if (g >= 2.35 && now - lastShakeDispatch >= 850) {
             lastShakeDispatch = now
-            sendSensorEvent(JSONObject().put("type", "shake").put("strength", g).put("timestamp", System.currentTimeMillis()).toString())
+            sendSensorEvent(
+                JSONObject()
+                    .put("type", "shake")
+                    .put("strength", g)
+                    .put("timestamp", System.currentTimeMillis())
+                    .toString()
+            )
         }
     }
 
@@ -107,14 +178,38 @@ class MainActivity : Activity(), SensorEventListener {
             .replace("<script src=\"./builder-next.js\"></script>", "<script>${asset("builder-next.js")}</script>")
             .replace("<script src=\"./language-prompts.js\"></script>", "<script>${asset("language-prompts.js")}</script>")
             .replace("<script src=\"./appspec-runtime.js\"></script>", "<script>${asset("appspec-runtime.js")}</script>")
+            .replace("<script src=\"./generated-app-hardening.js\"></script>", "<script>${asset("generated-app-hardening.js")}</script>")
+            .replace("<script src=\"./build-experience.js\"></script>", "<script>${asset("build-experience.js")}</script>")
         webView.loadDataWithBaseURL("https://app.crewbuilder.local/", bundled, "text/html", "UTF-8", null)
     }
 
     private fun asset(name: String) = assets.open("forge/$name").bufferedReader().use { it.readText() }
-    private fun sendJs(fn: String, payload: String) { if (!::webView.isInitialized) return; val q = JSONObject.quote(payload); runOnUiThread { webView.evaluateJavascript("$fn && $fn($q)", null) } }
+
+    private fun sendJs(fn: String, payload: String) {
+        if (!::webView.isInitialized) return
+        val q = JSONObject.quote(payload)
+        runOnUiThread { webView.evaluateJavascript("$fn && $fn($q)", null) }
+    }
+
     private fun sendSensorEvent(payload: String) = sendJs("window.__crewSensorEvent", payload)
-    fun resolveGemini(p: String) = sendJs("window.__crewGeminiResolve", p)
-    fun resolveLive(p: String) = sendJs("window.__crewLiveEvent", p)
-    @Deprecated("Deprecated in Java") override fun onBackPressed() { if (webView.canGoBack()) webView.goBack() else super.onBackPressed() }
-    override fun onDestroy() { sensorManager.unregisterListener(this); nativeBridge.destroy(); deviceBridge.destroy(); webView.removeJavascriptInterface("CrewNative"); webView.removeJavascriptInterface("CrewDevice"); webView.destroy(); super.onDestroy() }
+    fun resolveGemini(payload: String) = sendJs("window.__crewGeminiResolve", payload)
+    fun resolveLive(payload: String) = sendJs("window.__crewLiveEvent", payload)
+    fun resolveLocation(payload: String) = sendJs("window.__crewLocationResolve", payload)
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
+    }
+
+    override fun onDestroy() {
+        sensorManager.unregisterListener(this)
+        nativeBridge.destroy()
+        deviceBridge.destroy()
+        locationBridge.destroy()
+        webView.removeJavascriptInterface("CrewNative")
+        webView.removeJavascriptInterface("CrewDevice")
+        webView.removeJavascriptInterface("CrewLocation")
+        webView.destroy()
+        super.onDestroy()
+    }
 }
