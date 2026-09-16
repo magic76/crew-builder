@@ -15,20 +15,22 @@
   };
   const t = key => copy[language()][key] || copy.en[key] || key;
 
-  // Build progress belongs to the card in Recently built, not a blocking overlay.
   const status = el('statusOverlay');
   const statusTitle = el('statusTitle');
   const statusDetail = el('statusDetail');
-  let lastBuildSeconds = 0;
+  const library = el('library');
+  let buildStartedAt = 0;
+  let currentBuildStage = 'preparing';
+  let planningTimer = null;
   let scrolledToBuild = false;
 
   const style = document.createElement('style');
   style.textContent = `
     #statusOverlay.inline-build-mode{display:none!important}
-    .app-card.building{position:relative;overflow:hidden;border-color:rgba(130,148,255,.34)}
-    .app-card.building .app-card-copy{min-width:0}
-    .app-card.building .app-card-status{display:block;margin-top:4px;font-weight:650;color:rgba(225,230,255,.82)}
-    .app-card.building .app-card-meta{font-size:11px;opacity:.8}
+    .app-card.building,.pending-build-card{position:relative;overflow:hidden;border-color:rgba(130,148,255,.34)}
+    .app-card.building .app-card-copy,.pending-build-card .app-card-copy{min-width:0}
+    .app-card.building .app-card-status,.pending-build-card .app-card-status{display:block;margin-top:4px;font-weight:650;color:rgba(225,230,255,.82)}
+    .app-card.building .app-card-meta,.pending-build-card .app-card-meta{font-size:11px;opacity:.8}
     .inline-build-track{height:3px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:9px;width:100%}
     .inline-build-fill{height:100%;width:12%;border-radius:inherit;background:currentColor;opacity:.72;transition:width .45s ease}
     .ai-idea-skeleton{pointer-events:none;min-height:112px}
@@ -40,35 +42,39 @@
   `;
   document.head.appendChild(style);
 
-  function buildCard() {
+  function actualBuildCard() {
     return document.querySelector('.app-card[data-status="building"]');
   }
 
-  function stageFor(seconds) {
+  function buildCard() {
+    return actualBuildCard() || document.querySelector('.pending-build-card');
+  }
+
+  function elapsedSeconds() {
+    return buildStartedAt ? Math.max(0, Math.floor((Date.now() - buildStartedAt) / 1000)) : 0;
+  }
+
+  function visibleStage() {
     const text = `${statusTitle?.textContent || ''} ${statusDetail?.textContent || ''}`.toLowerCase();
     if (text.includes('repair') || text.includes('修正')) return 'repairing';
-    if (seconds < 2) return 'preparing';
-    if (seconds < 7) return 'generating';
-    return 'validating';
+    return currentBuildStage;
   }
 
   function progressFor(stage, seconds) {
-    if (stage === 'preparing') return 12 + Math.min(8, seconds * 4);
-    if (stage === 'generating') return Math.min(72, 25 + seconds * 6);
+    if (stage === 'preparing') return Math.min(24, 10 + seconds * 2);
+    if (stage === 'generating') return Math.min(72, 28 + seconds * 2.3);
     if (stage === 'repairing') return 90;
-    return Math.min(86, 72 + Math.max(0, seconds - 7) * 1.2);
+    return Math.min(86, 74 + seconds * .5);
   }
 
-  function paintBuildCard(seconds = lastBuildSeconds) {
-    lastBuildSeconds = Math.max(0, Number(seconds) || 0);
-    const card = buildCard();
+  function decorateBuildCard(card) {
     if (!card) return;
-    const stage = stageFor(lastBuildSeconds);
     const statusNode = card.querySelector('.app-card-status');
-    const meta = card.querySelector('.app-card-meta');
     const copyNode = card.querySelector('.app-card-copy');
-    if (statusNode) statusNode.textContent = `${t(stage)} · ${lastBuildSeconds}${t('seconds')}`;
-    if (meta) meta.textContent = t('building');
+    if (statusNode) {
+      statusNode.setAttribute('role', 'status');
+      statusNode.setAttribute('aria-live', 'polite');
+    }
     let track = copyNode?.querySelector('.inline-build-track');
     if (!track && copyNode) {
       track = document.createElement('div');
@@ -76,39 +82,108 @@
       track.innerHTML = '<div class="inline-build-fill"></div>';
       copyNode.appendChild(track);
     }
-    const fill = track?.querySelector('.inline-build-fill');
-    if (fill) fill.style.width = `${progressFor(stage, lastBuildSeconds)}%`;
+  }
+
+  function paintBuildCard() {
+    const card = buildCard();
+    if (!card) return;
+    decorateBuildCard(card);
+    const seconds = elapsedSeconds();
+    const stage = visibleStage();
+    const statusNode = card.querySelector('.app-card-status');
+    const meta = card.querySelector('.app-card-meta');
+    if (statusNode) statusNode.textContent = `${t(stage)} · ${seconds}${t('seconds')}`;
+    if (meta) meta.textContent = t('building');
+    const fill = card.querySelector('.inline-build-fill');
+    if (fill) fill.style.width = `${progressFor(stage, seconds)}%`;
     if (!scrolledToBuild) {
       scrolledToBuild = true;
       setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
     }
+    if (actualBuildCard() && planningTimer) {
+      clearInterval(planningTimer);
+      planningTimer = null;
+    }
+  }
+
+  function cleanPromptForCard(value) {
+    const clean = String(value || '').split('\n\n[CREW')[0].replace(/\s+/g, ' ').trim();
+    return clean.length > 42 ? `${clean.slice(0, 42)}…` : clean;
+  }
+
+  function showPlanningCard(rawPrompt) {
+    const prompt = cleanPromptForCard(rawPrompt);
+    if (!prompt || !library || actualBuildCard() || document.querySelector('.pending-build-card')) return;
+    if (!window.CrewAI?.available?.() || !window.CrewAI?.hasApiKey?.()) return;
+
+    buildStartedAt = Date.now();
+    currentBuildStage = 'preparing';
+    scrolledToBuild = false;
+    if (!library.querySelector('.app-card')) library.innerHTML = '';
+
+    const card = document.createElement('div');
+    card.className = 'app-card building pending-build-card';
+    card.innerHTML = `
+      <div class="app-card-icon">✦</div>
+      <div class="app-card-copy">
+        <strong></strong>
+        <span class="app-card-status"></span>
+      </div>
+      <div class="app-card-meta"></div>`;
+    card.querySelector('strong').textContent = prompt;
+    library.prepend(card);
+    paintBuildCard();
+    clearInterval(planningTimer);
+    planningTimer = setInterval(paintBuildCard, 500);
   }
 
   const originalUpdateProgress = window.CrewBuilder?.updateBuildingProgress;
   if (window.CrewBuilder) {
-    window.CrewBuilder.updateBuildingProgress = function(seconds) {
-      paintBuildCard(seconds);
+    window.CrewBuilder.updateBuildingProgress = function() {
+      if (!buildStartedAt) buildStartedAt = Date.now();
+      paintBuildCard();
       if (typeof originalUpdateProgress === 'function' && !buildCard()) {
-        originalUpdateProgress(seconds, t('building'), t('seconds'));
+        originalUpdateProgress(0, t('building'), t('seconds'));
       }
     };
   }
 
+  const originalValidate = window.validateGeneratedHtml;
+  if (typeof originalValidate === 'function') {
+    window.validateGeneratedHtml = function(html) {
+      currentBuildStage = 'validating';
+      paintBuildCard();
+      return originalValidate(html);
+    };
+  }
+
   function syncBuildMode() {
-    const active = Boolean(status && !status.hidden && buildCard());
+    const active = Boolean(status && !status.hidden && actualBuildCard());
     status?.classList.toggle('inline-build-mode', active);
-    if (active) paintBuildCard(lastBuildSeconds);
-    else if (status?.hidden) {
-      lastBuildSeconds = 0;
+    if (active) {
+      currentBuildStage = visibleStage() === 'repairing' ? 'repairing' : 'generating';
+      if (!buildStartedAt) buildStartedAt = Date.now();
+      paintBuildCard();
+    } else if (status?.hidden && !buildCard()) {
+      clearInterval(planningTimer);
+      planningTimer = null;
+      buildStartedAt = 0;
+      currentBuildStage = 'preparing';
       scrolledToBuild = false;
     }
   }
 
   if (status) new MutationObserver(syncBuildMode).observe(status, { attributes: true, attributeFilter: ['hidden'] });
-  if (statusTitle) new MutationObserver(() => paintBuildCard()).observe(statusTitle, { childList: true, characterData: true, subtree: true });
-  if (statusDetail) new MutationObserver(() => paintBuildCard()).observe(statusDetail, { childList: true, characterData: true, subtree: true });
+  if (statusTitle) new MutationObserver(paintBuildCard).observe(statusTitle, { childList: true, characterData: true, subtree: true });
+  if (statusDetail) new MutationObserver(paintBuildCard).observe(statusDetail, { childList: true, characterData: true, subtree: true });
+  if (library) new MutationObserver(() => {
+    if (actualBuildCard()) {
+      currentBuildStage = status && !status.hidden ? 'generating' : currentBuildStage;
+      paintBuildCard();
+    }
+  }).observe(library, { childList: true, subtree: false });
 
-  // AI idea generation: show loading in the result grid and never lock the action button.
+  // AI idea generation: loading lives in the result grid; the action button always stays usable.
   let ideaRequestSeq = 0;
   let latestIdeas = [];
 
@@ -235,6 +310,12 @@
   };
 
   document.addEventListener('click', event => {
+    const build = event.target?.closest?.('#forgeBtn');
+    if (build) {
+      showPlanningCard(el('promptInput')?.value || '');
+      return;
+    }
+
     const generate = event.target?.closest?.('#ideaGenerate');
     if (generate) {
       event.preventDefault();
@@ -262,10 +343,17 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       generateIdeas();
+      return;
+    }
+    if (event.target === el('promptInput') && event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      showPlanningCard(el('promptInput')?.value || '');
     }
   }, true);
 
-  el('uiLanguageSelect')?.addEventListener('change', () => setTimeout(syncIdeaButton, 0));
+  el('uiLanguageSelect')?.addEventListener('change', () => setTimeout(() => {
+    syncIdeaButton();
+    paintBuildCard();
+  }, 0));
   syncIdeaButton();
   syncBuildMode();
 })();
