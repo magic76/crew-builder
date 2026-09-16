@@ -128,7 +128,7 @@ class LocationNativeBridge(
     }
 
     private fun cleanup(requestId: String, manager: LocationManager) {
-        timeouts.remove(requestId)?.let(handler::removeCallbacks)
+        timeouts.remove(requestId)?.let { timeout -> handler.removeCallbacks(timeout) }
         listeners.remove(requestId)?.let { listener ->
             runCatching { manager.removeUpdates(listener) }
         }
