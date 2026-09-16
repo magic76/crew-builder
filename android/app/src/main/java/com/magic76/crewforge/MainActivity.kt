@@ -19,16 +19,21 @@ import kotlin.math.sqrt
 class MainActivity : Activity(), SensorEventListener {
     private lateinit var webView: WebView
     private lateinit var nativeBridge: ForgeNativeBridge
+    private lateinit var deviceBridge: DeviceNativeBridge
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
+    private var gyroscope: Sensor? = null
     private var lastSensorDispatch = 0L
+    private var lastGyroDispatch = 0L
     private var lastShakeDispatch = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         nativeBridge = ForgeNativeBridge(this, { resolveGemini(it) }, { resolveLive(it) })
+        deviceBridge = DeviceNativeBridge(this)
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         webView = WebView(this).apply {
             setBackgroundColor(android.graphics.Color.rgb(9, 12, 18))
             settings.javaScriptEnabled = true
@@ -38,6 +43,7 @@ class MainActivity : Activity(), SensorEventListener {
             settings.allowContentAccess = false
             settings.mediaPlaybackRequiresUserGesture = false
             addJavascriptInterface(nativeBridge, "CrewNative")
+            addJavascriptInterface(deviceBridge, "CrewDevice")
             webChromeClient = WebChromeClient()
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -55,6 +61,7 @@ class MainActivity : Activity(), SensorEventListener {
     override fun onResume() {
         super.onResume()
         accelerometer?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+        gyroscope?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
     }
 
     override fun onPause() {
@@ -63,11 +70,17 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
-        if (event?.sensor?.type != Sensor.TYPE_ACCELEROMETER || event.values.size < 3) return
-        val x = event.values[0]
-        val y = event.values[1]
-        val z = event.values[2]
+        if (event == null || event.values.size < 3) return
         val now = SystemClock.elapsedRealtime()
+        val x = event.values[0]; val y = event.values[1]; val z = event.values[2]
+        if (event.sensor.type == Sensor.TYPE_GYROSCOPE) {
+            if (now - lastGyroDispatch >= 80) {
+                lastGyroDispatch = now
+                sendSensorEvent(JSONObject().put("type", "gyroscope").put("x", x).put("y", y).put("z", z).put("timestamp", System.currentTimeMillis()).toString())
+            }
+            return
+        }
+        if (event.sensor.type != Sensor.TYPE_ACCELEROMETER) return
         if (now - lastSensorDispatch >= 80) {
             lastSensorDispatch = now
             sendSensorEvent(JSONObject().put("type", "accelerometer").put("x", x).put("y", y).put("z", z).put("timestamp", System.currentTimeMillis()).toString())
@@ -92,27 +105,16 @@ class MainActivity : Activity(), SensorEventListener {
             .replace("<script src=\"./ui-runtime.js\"></script>", "<script>${asset("ui-runtime.js")}</script>")
             .replace("<script src=\"./builder-ux.js\"></script>", "<script>${asset("builder-ux.js")}</script>")
             .replace("<script src=\"./builder-next.js\"></script>", "<script>${asset("builder-next.js")}</script>")
+            .replace("<script src=\"./language-prompts.js\"></script>", "<script>${asset("language-prompts.js")}</script>")
+            .replace("<script src=\"./appspec-runtime.js\"></script>", "<script>${asset("appspec-runtime.js")}</script>")
         webView.loadDataWithBaseURL("https://app.crewbuilder.local/", bundled, "text/html", "UTF-8", null)
     }
 
     private fun asset(name: String) = assets.open("forge/$name").bufferedReader().use { it.readText() }
-    private fun sendJs(fn: String, payload: String) {
-        if (!::webView.isInitialized) return
-        val q = JSONObject.quote(payload)
-        runOnUiThread { webView.evaluateJavascript("$fn && $fn($q)", null) }
-    }
+    private fun sendJs(fn: String, payload: String) { if (!::webView.isInitialized) return; val q = JSONObject.quote(payload); runOnUiThread { webView.evaluateJavascript("$fn && $fn($q)", null) } }
     private fun sendSensorEvent(payload: String) = sendJs("window.__crewSensorEvent", payload)
     fun resolveGemini(p: String) = sendJs("window.__crewGeminiResolve", p)
     fun resolveLive(p: String) = sendJs("window.__crewLiveEvent", p)
-
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() { if (webView.canGoBack()) webView.goBack() else super.onBackPressed() }
-
-    override fun onDestroy() {
-        sensorManager.unregisterListener(this)
-        nativeBridge.destroy()
-        webView.removeJavascriptInterface("CrewNative")
-        webView.destroy()
-        super.onDestroy()
-    }
+    @Deprecated("Deprecated in Java") override fun onBackPressed() { if (webView.canGoBack()) webView.goBack() else super.onBackPressed() }
+    override fun onDestroy() { sensorManager.unregisterListener(this); nativeBridge.destroy(); deviceBridge.destroy(); webView.removeJavascriptInterface("CrewNative"); webView.removeJavascriptInterface("CrewDevice"); webView.destroy(); super.onDestroy() }
 }
