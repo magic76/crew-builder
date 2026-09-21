@@ -146,6 +146,10 @@ function normalizeAppRecord(app) {
     id: version?.id || createId(),
     spec: version?.spec || null
   }));
+  value.versions = value.versions.map((version, index) => ({
+    ...version,
+    parentVersionId: version.parentVersionId ?? (index > 0 ? value.versions[index - 1].id : null)
+  }));
   let index = Number.isInteger(value.versionIndex) ? value.versionIndex : -1;
   if (index < 0 || index >= value.versions.length) {
     const matching = value.html ? value.versions.map(v => v.html).lastIndexOf(value.html) : -1;
@@ -550,8 +554,10 @@ async function applyForgeResult(app, result, request, spec = app.spec || null) {
   app.updatedAt = Date.now();
   app.name = extractAppName(html) || app.name;
   app.versions = Array.isArray(app.versions) ? app.versions : [];
+  const parentVersionId = app.versions[currentVersionIndex(app)]?.id || null;
   app.versions.push({
     id: createId(),
+    parentVersionId,
     html,
     request,
     model: app.model,
@@ -588,8 +594,13 @@ async function restoreVersion(app, index, toastMessage = '') {
 async function undoActiveApp() {
   const app = getActiveApp();
   const index = currentVersionIndex(app);
-  if (!app || index <= 0 || busy) return;
-  await restoreVersion(app, index - 1, 'Restored previous version');
+  if (!app || index < 0 || busy) return;
+  const current = app.versions[index];
+  const parentIndex = current?.parentVersionId
+    ? app.versions.findIndex((version) => version.id === current.parentVersionId)
+    : index - 1;
+  if (parentIndex < 0) return;
+  await restoreVersion(app, parentIndex, 'Restored previous version');
 }
 
 function openVersionHistory() {
