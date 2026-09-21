@@ -472,6 +472,8 @@ window.CrewBuilder = {
   openVersionHistory,
   restoreVersion,
   currentVersionIndex,
+  runtimeRequestCheck,
+  capabilitiesForApp,
   updateBuildingProgress,
   syncAppMenu
 };
@@ -624,6 +626,7 @@ function showVersionInfo() {
 }
 
 function renderPreview(app) {
+  window.CrewAI?.clearSensors?.();
   if (!app?.html) {
     preview.srcdoc = '<!doctype html><html><body style="font-family:system-ui;background:#0b1020;color:#fff;display:grid;place-items:center;height:100vh;margin:0">No preview yet</body></html>';
     return;
@@ -631,23 +634,105 @@ function renderPreview(app) {
   preview.srcdoc = injectRuntimeBridge(app.html, app.id);
 }
 
+const METHOD_CAPABILITY = {
+  vibrate: 'vibration',
+  share: 'share',
+  location: 'location',
+  clipboard: 'clipboard',
+  'device.battery': 'battery',
+  'tts.speak': 'tts',
+  'tts.stop': 'tts'
+};
+
+function capabilitiesForApp(app) {
+  const explicit = app?.spec?.nativeCapabilities;
+  if (Array.isArray(explicit)) return new Set(explicit);
+  const html = String(app?.html || '');
+  const inferred = new Set();
+  const patterns = {
+    shake: /crew\.sensor\.onShake\b/,
+    accelerometer: /crew\.sensor\.accelerometer\b/,
+    gyroscope: /crew\.sensor\.gyroscope\b/,
+    location: /crew\.location\.get\b/,
+    vibration: /crew\.vibrate\b/,
+    share: /crew\.share\b/,
+    clipboard: /crew\.clipboard\.write\b/,
+    battery: /crew\.device\.battery\b/,
+    tts: /crew\.tts\.(?:speak|stop)\b/
+  };
+  Object.entries(patterns).forEach(([key, pattern]) => { if (pattern.test(html)) inferred.add(key); });
+  return inferred;
+}
+
+function runtimeRequestCheck(event, msg) {
+  if (!msg.__crewForge || msg.type !== 'request' || !msg.id || !msg.appId) return { handled: false };
+  if (event.source !== preview?.contentWindow) return { handled: true, ok: false, error: 'Untrusted runtime frame' };
+  const app = getActiveApp();
+  if (!app || app.id !== msg.appId) return { handled: true, ok: false, error: 'App is not active' };
+  const payload = msg.payload || {};
+  const capability = (msg.method === 'sensor.subscribe' || msg.method === 'sensor.unsubscribe')
+    ? String(payload.sensor || '')
+    : METHOD_CAPABILITY[msg.method];
+  if (capability && !capabilitiesForApp(app).has(capability)) {
+    return { handled: true, ok: false, error: `Capability not granted: ${capability}`, app };
+  }
+  return { handled: true, ok: true, app };
+}
+
 function injectRuntimeBridge(html, appId) {
+  const app = apps.find((item) => item.id === appId);
+  const allowed = [...capabilitiesForApp(app)];
   const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">`;
   const bridge = `<script>
 (() => {
   const pending = new Map(); let seq = 0;
+  const sensorListeners = { shake: new Set(), accelerometer: new Set(), gyroscope: new Set() };
+  const allowedCapabilities = new Set(${JSON.stringify(allowed)});
   const call = (method, payload = {}) => new Promise((resolve, reject) => {
     const id = 'crew_' + Date.now() + '_' + (++seq);
     pending.set(id, { resolve, reject });
     parent.postMessage({ __crewForge: true, type: 'request', id, appId: ${JSON.stringify(appId)}, method, payload }, '*');
-    setTimeout(() => { if (!pending.has(id)) return; pending.delete(id); reject(new Error('Crew runtime request timed out')); }, 8000);
+    setTimeout(() => {
+      if (!pending.has(id)) return;
+      pending.delete(id);
+      reject(new Error('Crew runtime request timed out'));
+    }, 8000);
   });
+  const subscribeSensor = (sensor, fn) => {
+    if (typeof fn !== 'function') return () => {};
+    if (!allowedCapabilities.has(sensor)) {
+      console.warn('Crew capability not granted:', sensor);
+      return () => {};
+    }
+    const listeners = sensorListeners[sensor];
+    const first = listeners.size === 0;
+    listeners.add(fn);
+    if (first) call('sensor.subscribe', { sensor }).catch(error => console.warn(error.message));
+    return () => {
+      listeners.delete(fn);
+      if (!listeners.size) call('sensor.unsubscribe', { sensor }).catch(() => {});
+    };
+  };
   addEventListener('message', (event) => {
-    const msg = event.data || {}; if (!msg.__crewForge || msg.type !== 'response') return;
-    const item = pending.get(msg.id); if (!item) return; pending.delete(msg.id);
-    if (msg.error) item.reject(new Error(msg.error)); else item.resolve(msg.value);
+    const msg = event.data || {};
+    if (msg.__crewForge && msg.type === 'response') {
+      const item = pending.get(msg.id);
+      if (!item) return;
+      pending.delete(msg.id);
+      if (msg.error) item.reject(new Error(msg.error)); else item.resolve(msg.value);
+      return;
+    }
+    if (msg.__crewForge && msg.type === 'native-sensor' && sensorListeners[msg.sensor]) {
+      sensorListeners[msg.sensor].forEach(fn => { try { fn(msg.payload); } catch (_) {} });
+    }
+  });
+  addEventListener('pagehide', () => {
+    Object.entries(sensorListeners).forEach(([sensor, listeners]) => {
+      if (listeners.size) call('sensor.unsubscribe', { sensor }).catch(() => {});
+    });
   });
   window.crew = {
+    capabilities: [...allowedCapabilities],
     storage: {
       get: (key, fallback = null) => call('storage.get', { key, fallback }),
       set: (key, value) => call('storage.set', { key, value }),
@@ -655,7 +740,19 @@ function injectRuntimeBridge(html, appId) {
       all: () => call('storage.all')
     },
     vibrate: (pattern = 60) => call('vibrate', { pattern }),
-    share: (data = {}) => call('share', data)
+    share: (data = {}) => call('share', data),
+    location: { get: () => call('location') },
+    clipboard: { write: (text) => call('clipboard', { text: String(text || '') }) },
+    sensor: {
+      onShake: (fn) => subscribeSensor('shake', fn),
+      accelerometer: (fn) => subscribeSensor('accelerometer', fn),
+      gyroscope: (fn) => subscribeSensor('gyroscope', fn)
+    },
+    device: { battery: () => call('device.battery') },
+    tts: {
+      speak: (text, language = '') => call('tts.speak', { text: String(text || ''), language: String(language || '') }),
+      stop: () => call('tts.stop')
+    }
   };
 })();
 <\/script>`;
@@ -666,45 +763,91 @@ function injectRuntimeBridge(html, appId) {
 
 async function handleRuntimeMessage(event) {
   const msg = event.data || {};
-  if (!msg.__crewForge || msg.type !== 'request' || !msg.id || !msg.appId) return;
+  const check = runtimeRequestCheck(event, msg);
+  if (!check.handled) return;
   const respond = (value, error = null) => event.source?.postMessage({ __crewForge: true, type: 'response', id: msg.id, value, error }, '*');
+  if (!check.ok) { respond(null, check.error); return; }
   try {
-    const key = `${RUNTIME_PREFIX}${msg.appId}`;
-    const legacyKey = `${LEGACY_RUNTIME_PREFIX}${msg.appId}`;
-    let state = readJson(key, null);
-    if (!state) {
-      state = readJson(legacyKey, {});
-      if (Object.keys(state).length) localStorage.setItem(key, JSON.stringify(state));
-    }
     const payload = msg.payload || {};
     if (msg.method === 'storage.get') {
-      respond(Object.prototype.hasOwnProperty.call(state, payload.key) ? state[payload.key] : payload.fallback);
+      respond(await window.CrewStorage.runtimeGet(msg.appId, payload.key, payload.fallback));
     } else if (msg.method === 'storage.set') {
-      state[payload.key] = payload.value; localStorage.setItem(key, JSON.stringify(state)); respond(true);
+      respond(await window.CrewStorage.runtimeSet(msg.appId, payload.key, payload.value));
     } else if (msg.method === 'storage.remove') {
-      delete state[payload.key]; localStorage.setItem(key, JSON.stringify(state)); respond(true);
+      respond(await window.CrewStorage.runtimeRemove(msg.appId, payload.key));
     } else if (msg.method === 'storage.all') {
-      respond(state);
+      respond(await window.CrewStorage.runtimeAll(msg.appId));
     } else if (msg.method === 'vibrate') {
-      if (navigator.vibrate) navigator.vibrate(payload.pattern ?? 60); respond(true);
+      if (navigator.vibrate) navigator.vibrate(payload.pattern ?? 60);
+      respond(true);
     } else if (msg.method === 'share') {
       if (navigator.share) {
         await navigator.share({ title: payload.title || '', text: payload.text || '', url: payload.url || undefined });
         respond(true);
       } else respond(false);
-    } else respond(null, `Unsupported Crew runtime method: ${msg.method}`);
+    } else {
+      respond(null, `Unsupported Crew runtime method: ${msg.method}`);
+    }
   } catch (error) {
     respond(null, error.message || String(error));
   }
 }
 window.handleRuntimeMessage = handleRuntimeMessage;
 
-function buildCreatePrompt(request) {
-  return `You are Crew Builder, a consumer AI mini-app builder. Build one polished, immediately usable mobile mini app for this request:\n\nUSER REQUEST:\n${request}\n\nOUTPUT CONTRACT:\n- Return one COMPLETE self-contained HTML document inside exactly one \`\`\`html fenced block.\n- Use inline CSS and JavaScript only. No external libraries, fonts, images, APIs, network requests, downloads, eval(), or dynamic script loading.\n- Mobile-first. Touch targets >= 44px. Make it feel like a real product, not a demo.\n- Do not create login, password, credential, payment, financial trading, medical diagnosis, or other sensitive-data collection flows.\n- Do NOT use localStorage/sessionStorage directly. Persistent state uses await crew.storage.get(key, fallback), await crew.storage.set(key, value), await crew.storage.remove(key), await crew.storage.all().\n- Optional helpers: await crew.vibrate(pattern), await crew.share({ title, text, url }).\n- Do not access parent/top DOM. Do not navigate.\n- Include a meaningful <title>.\n- Handle empty/error states.\n- Prefer simple, reliable interactions over ambitious features.\n\nLIVE VOICE CONTRACT:\n- Every interactive app MUST register semantic voice actions after initialization with crew.live.registerActions(actions, handler).\n- Actions must describe user intent, not screen coordinates. Example names: add_score, reset_game, start_timer, set_duration, add_item, remove_item.\n- Each action object must include name, description, and a simple parameters object describing expected arguments.\n- The handler receives (name, args), performs the same state change as the UI, updates the rendered UI, persists when needed, and returns a small useful result.\n- Call crew.live.updateState(state) after initial load and whenever meaningful app state changes. Keep state compact and factual so voice can answer questions such as who is leading or how much time remains.\n- Do not expose destructive or sensitive actions without a clear user-facing UI equivalent.`;
+function buildCreatePrompt(request, spec = null) {
+  const specText = spec
+    ? `\n\nAPP SPEC (authoritative product plan):\n${JSON.stringify(spec, null, 2)}\n\nCAPABILITY SELECTION:\n${window.CrewAppSpec?.capabilityPrompt?.(spec) || '- No native capability is required.'}\n\nImplement this AppSpec faithfully. Do not use Crew capabilities that are not selected above.`
+    : '\n\nNo AppSpec was available. Keep the app focused and use no native capabilities unless the user explicitly requested one.';
+  return `You are Crew Builder, a consumer AI mini-app builder. Build one polished, immediately usable mobile mini app for this request:
+
+USER REQUEST:
+${request}${specText}
+
+OUTPUT CONTRACT:
+- Return one COMPLETE self-contained HTML document inside exactly one \`\`\`html fenced block.
+- Use inline CSS and JavaScript only. No external libraries, fonts, images, APIs, network requests, downloads, eval(), or dynamic script loading.
+- Mobile-first. Touch targets >= 44px. Make it feel like a real product, not a demo.
+- Do not create login, password, credential, payment, financial trading, medical diagnosis, or other sensitive-data collection flows.
+- Do NOT use localStorage/sessionStorage directly. Persistent state uses await crew.storage.get(key, fallback), await crew.storage.set(key, value), await crew.storage.remove(key), await crew.storage.all().
+- Use only Crew APIs explicitly selected by the AppSpec. Available APIs include crew.vibrate, crew.share, crew.sensor, crew.location, crew.clipboard, crew.device and crew.tts.
+- Never access CrewNative, CrewDevice, CrewHost, or any native bridge directly.
+- Do not access parent/top DOM. Do not navigate.
+- Include a meaningful <title>.
+- Handle empty/error states.
+- Prefer simple, reliable interactions over ambitious features.
+
+LIVE VOICE CONTRACT:
+- Every interactive app MUST register semantic voice actions after initialization with crew.live.registerActions(actions, handler).
+- Actions must describe user intent, not screen coordinates. Example names: add_score, reset_game, start_timer, set_duration, add_item, remove_item.
+- Each action object must include name, description, and a simple parameters object describing expected arguments.
+- The handler receives (name, args), performs the same state change as the UI, updates the rendered UI, persists when needed, and returns a small useful result.
+- Call crew.live.updateState(state) after initial load and whenever meaningful app state changes. Keep state compact and factual so voice can answer questions such as who is leading or how much time remains.
+- Do not expose destructive or sensitive actions without a clear user-facing UI equivalent.`;
 }
 
-function buildModifyPrompt(request, app) {
-  return `You are Crew Builder. Modify the mini app below according to the user's change.\n\nUSER CHANGE:\n${request}\n\nCURRENT APP (authoritative — this may be an older version after Undo):\n---BEGIN CURRENT HTML---\n${app.html}\n---END CURRENT HTML---\n\nRULES:\n- Preserve existing behavior, visual identity, user data, semantic Live actions, and Live state reporting unless the request requires changing them.\n- If this older app does not yet use crew.live.registerActions and crew.live.updateState, add a compact semantic Live contract for its important interactions.\n- Make the smallest coherent change that fully satisfies the request.\n- Return the UPDATED COMPLETE self-contained HTML document inside exactly one \`\`\`html fenced block.\n- Never return a diff or partial snippet.\n- Keep using crew.storage instead of localStorage/sessionStorage.\n- No external libraries, network requests, downloads, eval(), dynamic script loading, credential collection, or top/parent DOM access.`;
+function buildModifyPrompt(request, app, spec = app.spec || null) {
+  const specText = spec
+    ? `\n\nUPDATED APP SPEC (authoritative):\n${JSON.stringify(spec, null, 2)}\n\nCAPABILITY SELECTION:\n${window.CrewAppSpec?.capabilityPrompt?.(spec) || '- No native capability is required.'}`
+    : '';
+  return `You are Crew Builder. Modify the mini app below according to the user's change.
+
+USER CHANGE:
+${request}${specText}
+
+CURRENT APP (authoritative — this may be an older version after Undo):
+---BEGIN CURRENT HTML---
+${app.html}
+---END CURRENT HTML---
+
+RULES:
+- Preserve existing behavior, visual identity, user data, semantic Live actions, and Live state reporting unless the request requires changing them.
+- If this older app does not yet use crew.live.registerActions and crew.live.updateState, add a compact semantic Live contract for its important interactions.
+- Make the smallest coherent change that fully satisfies the request.
+- Return the UPDATED COMPLETE self-contained HTML document inside exactly one \`\`\`html fenced block.
+- Never return a diff or partial snippet.
+- Keep using crew.storage instead of localStorage/sessionStorage.
+- Use only Crew APIs selected by the updated AppSpec. Never access CrewNative, CrewDevice, CrewHost, or any native bridge directly.
+- No external libraries, network requests, downloads, eval(), dynamic script loading, credential collection, or top/parent DOM access.`;
 }
 
 function buildRepairPrompt(htmlOrText, issues) {
