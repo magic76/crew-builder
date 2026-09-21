@@ -101,8 +101,6 @@
       const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
       if (elapsed) elapsed.textContent = String(seconds) + t('seconds');
       window.CrewBuilder?.updateBuildingProgress?.(seconds, t('building'), t('seconds'));
-      if (seconds >= 1 && seconds < 5) setStep('generate');
-      else if (seconds >= 5) setStep('validate');
     }, 500);
   }
 
@@ -132,6 +130,6 @@
   if (statusDetail) new MutationObserver(syncRepairState).observe(statusDetail, { childList: true, characterData: true, subtree: true });
 
   el('uiLanguageSelect')?.addEventListener('change', () => setTimeout(syncMenuLanguage, 0));
-  window.CrewBuilderUX = { syncMenuLanguage, t };
+  window.CrewBuilderUX = { syncMenuLanguage, setStep, t };
   syncMenuLanguage();
 })();
