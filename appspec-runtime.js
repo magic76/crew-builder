@@ -13,7 +13,7 @@
 
   const lang = () => (document.documentElement.dataset.uiLanguage || localStorage.getItem('crew-builder.ui-language') || 'zh-TW') === 'en' ? 'en' : 'zh-TW';
   const languageName = () => lang() === 'en' ? 'English' : 'Traditional Chinese (Taiwan)';
-  const cleanJson = text => String(text || '').replace(/^\`\`\`(?:json)?\\s*/i, '').replace(/\`\`\`\\s*$/i, '').trim();
+  const cleanJson = text => String(text || '').replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
 
   function normalize(spec) {
     const value = spec && typeof spec === 'object' ? spec : {};
