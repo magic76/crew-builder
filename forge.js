@@ -822,7 +822,7 @@ LIVE VOICE CONTRACT:
 - Each action object must include name, description, and a simple parameters object describing expected arguments.
 - The handler receives (name, args), performs the same state change as the UI, updates the rendered UI, persists when needed, and returns a small useful result.
 - Call crew.live.updateState(state) after initial load and whenever meaningful app state changes. Keep state compact and factual so voice can answer questions such as who is leading or how much time remains.
-- Do not expose destructive or sensitive actions without a clear user-facing UI equivalent.`;
+- Do not expose destructive or sensitive actions without a clear user-facing UI equivalent.${window.CrewLanguagePrompts?.outputLanguageRule?.() || ''}`;
 }
 
 function buildModifyPrompt(request, app, spec = app.spec || null) {
@@ -847,11 +847,11 @@ RULES:
 - Never return a diff or partial snippet.
 - Keep using crew.storage instead of localStorage/sessionStorage.
 - Use only Crew APIs selected by the updated AppSpec. Never access CrewNative, CrewDevice, CrewHost, or any native bridge directly.
-- No external libraries, network requests, downloads, eval(), dynamic script loading, credential collection, or top/parent DOM access.`;
+- No external libraries, network requests, downloads, eval(), dynamic script loading, credential collection, or top/parent DOM access.${window.CrewLanguagePrompts?.outputLanguageRule?.() || ''}`;
 }
 
 function buildRepairPrompt(htmlOrText, issues) {
-  return `You are Crew Builder's repair pass. Fix ONLY the deterministic runtime/contract problems below while preserving the intended app behavior and appearance.\n\nVALIDATION ISSUES:\n${issues.map((issue) => `- ${issue}`).join('\n')}\n\nCURRENT OUTPUT:\n---BEGIN OUTPUT---\n${String(htmlOrText || '').slice(0, MAX_HTML_BYTES)}\n---END OUTPUT---\n\nReturn one corrected COMPLETE self-contained HTML document inside exactly one \`\`\`html fenced block. Do not explain. Keep the app offline and sandbox-safe. Use crew.storage instead of browser storage. Preserve or add semantic crew.live.registerActions(...) and crew.live.updateState(...) support.`;
+  return `You are Crew Builder's repair pass. Fix ONLY the deterministic runtime/contract problems below while preserving the intended app behavior and appearance.\n\nVALIDATION ISSUES:\n${issues.map((issue) => `- ${issue}`).join('\n')}\n\nCURRENT OUTPUT:\n---BEGIN OUTPUT---\n${String(htmlOrText || '').slice(0, MAX_HTML_BYTES)}\n---END OUTPUT---\n\nReturn one corrected COMPLETE self-contained HTML document inside exactly one \`\`\`html fenced block. Do not explain. Keep the app offline and sandbox-safe. Use crew.storage instead of browser storage. Preserve or add semantic crew.live.registerActions(...) and crew.live.updateState(...) support.${window.CrewLanguagePrompts?.outputLanguageRule?.() || ''}`;
 }
 
 function extractHtml(text) {
