@@ -13,6 +13,8 @@
       manage: 'Manage app',
       rename: 'Rename',
       duplicate: 'Duplicate',
+      history: 'Version history',
+      historyTitle: 'Version history',
       del: 'Delete',
       preparing: 'Preparing',
       generating: 'Generating',
@@ -27,6 +29,8 @@
       manage: '管理工具',
       rename: '重新命名',
       duplicate: '建立副本',
+      history: '版本紀錄',
+      historyTitle: '版本紀錄',
       del: '刪除',
       preparing: '準備需求',
       generating: '產生介面與功能',
@@ -51,6 +55,8 @@
     if (el('appMenuTitle')) el('appMenuTitle').textContent = t('manage');
     setActionLabel('renameAppBtn', t('rename'));
     setActionLabel('duplicateAppBtn', t('duplicate'));
+    setActionLabel('historyAppBtn', t('history'));
+    if (el('versionHistoryTitle')) el('versionHistoryTitle').textContent = t('historyTitle');
     setActionLabel('deleteAppBtn', t('del'));
     setActionLabel('improveAppBtn', language() === 'en' ? 'Improve this app' : '改進這個工具');
     ['prepare', 'generate', 'validate', 'ready'].forEach((step) => {
@@ -58,27 +64,6 @@
       if (node) node.textContent = t(step === 'prepare' ? 'preparing' : step === 'generate' ? 'generating' : step);
     });
     window.CrewBuilder?.syncAppMenu?.();
-  }
-
-  function injectLanguage(event) {
-    const target = event.target;
-    const isBuildClick = target?.closest?.('#forgeBtn');
-    const isModifyClick = target?.closest?.('#modifyBtn');
-    const isShortcut = event.type === 'keydown'
-      && (event.metaKey || event.ctrlKey)
-      && event.key === 'Enter'
-      && target === el('promptInput');
-    const input = isModifyClick
-      ? el('modifyInput')
-      : ((isBuildClick || isShortcut) ? el('promptInput') : null);
-    if (!input || input.dataset.languageInjected === '1') return;
-    const original = input.value;
-    input.value = original + '\n\n[CREW BUILDER LANGUAGE]\n' + t('languageRule');
-    input.dataset.languageInjected = '1';
-    queueMicrotask(() => {
-      input.value = original;
-      delete input.dataset.languageInjected;
-    });
   }
 
   function setStep(step) {
@@ -101,8 +86,6 @@
       const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
       if (elapsed) elapsed.textContent = String(seconds) + t('seconds');
       window.CrewBuilder?.updateBuildingProgress?.(seconds, t('building'), t('seconds'));
-      if (seconds >= 1 && seconds < 5) setStep('generate');
-      else if (seconds >= 5) setStep('validate');
     }, 500);
   }
 
@@ -119,9 +102,6 @@
     if (validating) validating.textContent = text.includes('repair') || text.includes('修正') ? t('repairing') : t('validating');
   }
 
-  document.addEventListener('click', injectLanguage, true);
-  document.addEventListener('keydown', injectLanguage, true);
-
   if (status) {
     new MutationObserver(() => {
       if (!status.hidden && !timer) startProgress();
@@ -132,6 +112,6 @@
   if (statusDetail) new MutationObserver(syncRepairState).observe(statusDetail, { childList: true, characterData: true, subtree: true });
 
   el('uiLanguageSelect')?.addEventListener('change', () => setTimeout(syncMenuLanguage, 0));
-  window.CrewBuilderUX = { syncMenuLanguage, t };
+  window.CrewBuilderUX = { syncMenuLanguage, setStep, t };
   syncMenuLanguage();
 })();

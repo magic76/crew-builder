@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.os.BatteryManager
 import android.speech.tts.TextToSpeech
-import android.webkit.JavascriptInterface
 import org.json.JSONObject
 import java.util.Locale
 
@@ -16,7 +15,6 @@ class DeviceNativeBridge(private val activity: Activity) : TextToSpeech.OnInitLi
         ready = status == TextToSpeech.SUCCESS
     }
 
-    @JavascriptInterface
     fun getBattery(): String {
         val manager = activity.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val level = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).coerceIn(0, 100)
@@ -24,7 +22,6 @@ class DeviceNativeBridge(private val activity: Activity) : TextToSpeech.OnInitLi
         return JSONObject().put("level", level).put("charging", charging).toString()
     }
 
-    @JavascriptInterface
     fun speak(text: String?, language: String?): Boolean {
         val value = text.orEmpty().trim().take(1000)
         if (!ready || value.isBlank()) return false
@@ -42,7 +39,6 @@ class DeviceNativeBridge(private val activity: Activity) : TextToSpeech.OnInitLi
         return true
     }
 
-    @JavascriptInterface
     fun stopSpeaking() {
         activity.runOnUiThread { tts?.stop() }
     }
