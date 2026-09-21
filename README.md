@@ -12,16 +12,17 @@ Crew Builder is a standalone Android app. It does **not** require Crew Pocket, C
 Crew Builder APK
   ├─ Builder UI
   ├─ Gemini builder
-  │    ├─ preferred model
-  │    ├─ automatic model fallback
+  │    ├─ AppSpec planner / revision
+  │    ├─ preferred model + automatic fallback
   │    └─ one bounded repair pass after deterministic validation
   ├─ Gemini Live voice runtime
   ├─ Generated App Runtime
-  ├─ App Library / Versions / Undo
-  └─ Native capability bridge
-       ├─ storage
-       ├─ vibration
-       └─ Android share
+  ├─ IndexedDB App Library / Runtime State
+  ├─ Version History / Restore / lineage-aware Undo
+  └─ Origin-scoped native host bridge
+       ├─ vibration / share / clipboard / location
+       ├─ battery / TTS
+       └─ on-demand shake / accelerometer / gyroscope
 ```
 
 Android application id / namespace:
@@ -57,6 +58,8 @@ For a future service-managed public release, use an authenticated backend / shor
 ## Generated app sandbox
 
 Generated mini apps are HTML/CSS/JS rendered in a sandboxed iframe. Crew Builder injects a restrictive CSP that blocks external network access and dynamic external resources.
+
+The Android native host uses AndroidX WebKit origin-scoped web messaging and accepts messages only from the Crew Builder main frame. The sandboxed generated iframe does not receive a native bridge object. Generated apps can request native behavior only through the parent runtime bridge, which checks the active app id, preview frame, and the persisted AppSpec capability allowlist before forwarding a request.
 
 Generated apps can use:
 
@@ -114,7 +117,9 @@ If the first output fails validation, Crew Builder performs **one** focused Gemi
 
 ## Persistence migration
 
-Current browser storage uses `crew-builder.*` keys. Existing `crew-forge.*` app library, model preference, active app id, Live preferences, runtime state, and native Gemini key are migrated forward so upgrades do not wipe user data.
+The app library, generated HTML versions, AppSpec metadata, and generated-app runtime state live in IndexedDB instead of localStorage. Small preferences such as active app, UI language, model preference, and Live preferences remain in localStorage.
+
+Existing `crew-builder.apps.v1`, `crew-forge.*` app libraries, legacy runtime state, model preference, active app id, Live preferences, and native Gemini key are migrated forward. After a successful IndexedDB migration, the large legacy localStorage app/runtime payloads are removed.
 
 ## Product loop
 
@@ -122,10 +127,11 @@ Current browser storage uses `crew-builder.*` keys. Existing `crew-forge.*` app 
 2. Gemini generates one complete self-contained HTML app.
 3. Crew Builder validates it and, only when needed, performs one repair pass.
 4. Crew Builder immediately runs it full-screen.
-5. `Modify` sends the current authoritative HTML plus the requested change to Gemini.
-6. The updated HTML becomes a new local version.
-7. `Undo` restores the previous version without conversation-state drift.
+5. `Modify` first revises the persisted AppSpec, then sends the updated spec plus the current authoritative HTML to Gemini.
+6. The updated HTML and AppSpec become a new immutable local version with a parent-version link.
+7. `Undo` follows version lineage without deleting history; Version History can restore any retained version.
 8. `Live` can inspect state and operate semantic app actions by voice.
+9. Sensor listeners are enabled natively only while the active generated app has subscribed to them.
 
 ## Android build
 
