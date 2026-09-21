@@ -333,7 +333,7 @@ async function createApp(rawPrompt) {
     }
     setBusy(true, 'Building your app', 'Gemini is building the first version…');
     window.CrewBuilderUX?.setStep?.('generate');
-    const result = await runForgeTurn(buildCreatePrompt(request, app.spec), app.model);
+    const result = await runForgeTurn(buildCreatePrompt(request, app.spec), app.model, app.spec);
     await applyForgeResult(app, result, request, app.spec);
     promptInput.value = '';
     openApp(app.id);
@@ -363,7 +363,7 @@ async function modifyApp(rawRequest) {
     }
     setBusy(true, 'Updating your app', 'Gemini is applying the change…');
     window.CrewBuilderUX?.setStep?.('generate');
-    const result = await runForgeTurn(buildModifyPrompt(request, app, nextSpec), selectedModel());
+    const result = await runForgeTurn(buildModifyPrompt(request, app, nextSpec), selectedModel(), nextSpec);
     await applyForgeResult(app, result, request, nextSpec);
     modifyInput.value = '';
     openApp(app.id);
@@ -496,22 +496,22 @@ window.CrewBuilder = {
   syncAppMenu
 };
 
-async function runForgeTurn(prompt, model) {
+async function runForgeTurn(prompt, model, spec = null) {
   const first = await window.CrewAI.generate(prompt, model || 'auto');
   window.CrewBuilderUX?.setStep?.('validate');
   const firstHtml = extractHtml(first.text);
-  const issues = validateGeneratedHtml(firstHtml);
+  const issues = validateGeneratedHtml(firstHtml, spec);
   if (!issues.length) return first;
 
   setBusy(true, 'Repairing generated app', issues[0]);
   const repair = await window.CrewAI.generate(buildRepairPrompt(firstHtml || first.text, issues), first.model || model || 'auto');
   const repairedHtml = extractHtml(repair.text);
-  const remaining = validateGeneratedHtml(repairedHtml);
+  const remaining = validateGeneratedHtml(repairedHtml, spec);
   if (remaining.length) throw new Error(`Generated app failed validation: ${remaining[0]}`);
   return repair;
 }
 
-function validateGeneratedHtml(html) {
+function validateGeneratedHtml(html, spec = null) {
   const issues = [];
   const value = String(html || '').trim();
   if (!value) return ['No complete HTML document was returned'];
@@ -530,6 +530,12 @@ function validateGeneratedHtml(html) {
     [/\bCrewNative\b|\bCrewDevice\b|\bCrewHost\b/i, 'Direct native bridge access is not allowed'],
   ];
   forbidden.forEach(([pattern, message]) => { if (pattern.test(value)) issues.push(message); });
+  if (Array.isArray(spec?.nativeCapabilities)) {
+    const allowed = new Set(spec.nativeCapabilities);
+    detectCapabilitiesInHtml(value).forEach((capability) => {
+      if (!allowed.has(capability)) issues.push(`Crew capability not selected by AppSpec: ${capability}`);
+    });
+  }
 
   try {
     const doc = new DOMParser().parseFromString(value, 'text/html');
@@ -669,11 +675,9 @@ const METHOD_CAPABILITY = {
   'tts.stop': 'tts'
 };
 
-function capabilitiesForApp(app) {
-  const explicit = app?.spec?.nativeCapabilities;
-  if (Array.isArray(explicit)) return new Set(explicit);
-  const html = String(app?.html || '');
-  const inferred = new Set();
+function detectCapabilitiesInHtml(html) {
+  const value = String(html || '');
+  const detected = new Set();
   const patterns = {
     shake: /crew\.sensor\.onShake\b/,
     accelerometer: /crew\.sensor\.accelerometer\b/,
@@ -685,8 +689,14 @@ function capabilitiesForApp(app) {
     battery: /crew\.device\.battery\b/,
     tts: /crew\.tts\.(?:speak|stop)\b/
   };
-  Object.entries(patterns).forEach(([key, pattern]) => { if (pattern.test(html)) inferred.add(key); });
-  return inferred;
+  Object.entries(patterns).forEach(([key, pattern]) => { if (pattern.test(value)) detected.add(key); });
+  return detected;
+}
+
+function capabilitiesForApp(app) {
+  const explicit = app?.spec?.nativeCapabilities;
+  if (Array.isArray(explicit)) return new Set(explicit);
+  return detectCapabilitiesInHtml(app?.html || '');
 }
 
 function runtimeRequestCheck(event, msg) {
