@@ -103,7 +103,7 @@ function bindUi() {
   el('clearKeyBtn').addEventListener('click', clearApiKey);
   modifySheet.addEventListener('click', (event) => { if (event.target === modifySheet) closeModify(); });
   settingsSheet.addEventListener('click', (event) => { if (event.target === settingsSheet) closeSettings(); });
-  window.addEventListener('message', handleRuntimeMessage);
+  window.addEventListener('message', window.handleRuntimeMessage || handleRuntimeMessage);
   window.addEventListener('crew-key-state', refreshKeyState);
 }
 
