@@ -43,7 +43,7 @@
 
   const stopLive = () => {
     if (liveState === 'stopped') return;
-    try { window.CrewNative?.stopGeminiLive?.(); } catch (_) {}
+    window.CrewAI?.hostCall?.('live.stop', {}, 5000).catch(() => {});
     setState('stopped');
   };
 
@@ -79,7 +79,7 @@
   }
 
   liveBtn?.addEventListener('click', async () => {
-    if (!window.CrewNative?.startGeminiLive) return window.showToast?.('Live requires the Android app', true);
+    if (!window.CrewAI?.hostCall) return window.showToast?.('Live requires the Android app', true);
     if (liveState === 'ready' || liveState === 'connecting') {
       stopLive();
       return;
@@ -87,7 +87,7 @@
     if (!window.CrewAI?.hasApiKey?.()) return window.openSettings?.();
     setState('connecting', uiZh() ? '正在讀取頁面控制項…' : 'Reading app controls…');
     await freshActions();
-    window.CrewNative.startGeminiLive(context());
+    window.CrewAI.hostCall('live.start', { context: context() }, 10000).catch((error) => setState('error', error.message));
   });
 
   backBtn?.addEventListener('click', stopLive, true);
@@ -158,13 +158,13 @@
     } else if (event.name === 'modify_app') {
       const request = String(event.args?.request || '').trim();
       if (request && window.modifyApp) {
-        window.CrewNative.respondGeminiLive(event.id, event.name, JSON.stringify({ ok: true, status: 'builder_started' }));
+        window.CrewAI?.hostCall?.('live.respond', { callId: event.id, name: event.name, resultJson: JSON.stringify({ ok: true, status: 'builder_started' }) }, 5000).catch(() => {});
         stopLive();
         await window.modifyApp(request);
         return;
       }
     }
-    window.CrewNative?.respondGeminiLive?.(event.id, event.name, JSON.stringify(result));
+    window.CrewAI?.hostCall?.('live.respond', { callId: event.id, name: event.name, resultJson: JSON.stringify(result) }, 5000).catch(() => {});
   };
 
   const originalInject = window.injectRuntimeBridge;
