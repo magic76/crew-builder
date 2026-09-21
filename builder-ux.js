@@ -60,27 +60,6 @@
     window.CrewBuilder?.syncAppMenu?.();
   }
 
-  function injectLanguage(event) {
-    const target = event.target;
-    const isBuildClick = target?.closest?.('#forgeBtn');
-    const isModifyClick = target?.closest?.('#modifyBtn');
-    const isShortcut = event.type === 'keydown'
-      && (event.metaKey || event.ctrlKey)
-      && event.key === 'Enter'
-      && target === el('promptInput');
-    const input = isModifyClick
-      ? el('modifyInput')
-      : ((isBuildClick || isShortcut) ? el('promptInput') : null);
-    if (!input || input.dataset.languageInjected === '1') return;
-    const original = input.value;
-    input.value = original + '\n\n[CREW BUILDER LANGUAGE]\n' + t('languageRule');
-    input.dataset.languageInjected = '1';
-    queueMicrotask(() => {
-      input.value = original;
-      delete input.dataset.languageInjected;
-    });
-  }
-
   function setStep(step) {
     const order = ['prepare', 'generate', 'validate', 'ready'];
     const active = Math.max(0, order.indexOf(step));
@@ -116,9 +95,6 @@
     const validating = document.querySelector('[data-step="validate"] span');
     if (validating) validating.textContent = text.includes('repair') || text.includes('修正') ? t('repairing') : t('validating');
   }
-
-  document.addEventListener('click', injectLanguage, true);
-  document.addEventListener('keydown', injectLanguage, true);
 
   if (status) {
     new MutationObserver(() => {
