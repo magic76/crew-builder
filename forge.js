@@ -104,6 +104,7 @@ function bindUi() {
   modifySheet.addEventListener('click', (event) => { if (event.target === modifySheet) closeModify(); });
   settingsSheet.addEventListener('click', (event) => { if (event.target === settingsSheet) closeSettings(); });
   window.addEventListener('message', handleRuntimeMessage);
+  window.addEventListener('crew-key-state', refreshKeyState);
 }
 
 window.addEventListener('load', init, { once: true });
@@ -205,23 +206,31 @@ function openSettings() {
 }
 function closeSettings() { settingsSheet.hidden = true; }
 
-function saveSettings() {
+async function saveSettings() {
   const model = modelSelect.value || 'auto';
   localStorage.setItem(MODEL_KEY, model);
   const key = apiKeyInput.value.trim();
-  if (key) window.CrewAI?.setApiKey?.(key);
-  apiKeyInput.value = '';
-  updateModelUi();
-  refreshKeyState();
-  closeSettings();
-  showToast('Gemini settings saved');
+  try {
+    if (key) await window.CrewAI?.setApiKey?.(key);
+    apiKeyInput.value = '';
+    updateModelUi();
+    refreshKeyState();
+    closeSettings();
+    showToast('Gemini settings saved');
+  } catch (error) {
+    showToast(error.message || 'Could not save Gemini settings', true);
+  }
 }
 
-function clearApiKey() {
-  window.CrewAI?.clearApiKey?.();
-  apiKeyInput.value = '';
-  refreshKeyState();
-  showToast('API key cleared');
+async function clearApiKey() {
+  try {
+    await window.CrewAI?.clearApiKey?.();
+    apiKeyInput.value = '';
+    refreshKeyState();
+    showToast('API key cleared');
+  } catch (error) {
+    showToast(error.message || 'Could not clear API key', true);
+  }
 }
 
 function ensureGeminiReady() {
