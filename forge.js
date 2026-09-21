@@ -575,7 +575,13 @@ async function applyForgeResult(app, result, request, spec = app.spec || null) {
     spec: app.spec ? JSON.parse(JSON.stringify(app.spec)) : null,
     createdAt: Date.now()
   });
-  if (app.versions.length > MAX_VERSIONS) app.versions.splice(0, app.versions.length - MAX_VERSIONS);
+  while (app.versions.length > MAX_VERSIONS) {
+    const removable = app.versions.findIndex((version, index) =>
+      index < app.versions.length - 1 && version.id !== parentVersionId
+    );
+    if (removable < 0) break;
+    app.versions.splice(removable, 1);
+  }
   app.versionIndex = app.versions.length - 1;
   await saveApps();
   window.CrewBuilderUX?.setStep?.('ready');
@@ -594,7 +600,7 @@ async function restoreVersion(app, index, toastMessage = '') {
   app.versionIndex = index;
   app.html = version.html;
   app.model = version.model || app.model;
-  app.spec = version.spec || app.spec || null;
+  app.spec = version.spec || null;
   app.updatedAt = Date.now();
   await saveApps();
   openApp(app.id);
