@@ -433,7 +433,12 @@ async function duplicateActiveApp() {
   clone.updatedAt = now;
   clone.status = 'ready';
   clone.pinned = false;
-  clone.versions = (clone.versions || []).map((version) => ({ ...version, id: createId() }));
+  const versionIdMap = new Map((clone.versions || []).map((version) => [version.id, createId()]));
+  clone.versions = (clone.versions || []).map((version) => ({
+    ...version,
+    id: versionIdMap.get(version.id),
+    parentVersionId: version.parentVersionId ? (versionIdMap.get(version.parentVersionId) || null) : null
+  }));
   clone.versionIndex = Math.min(Math.max(0, clone.versionIndex ?? clone.versions.length - 1), Math.max(0, clone.versions.length - 1));
   apps.unshift(clone);
   await saveApps();
