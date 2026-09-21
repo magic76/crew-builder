@@ -13,8 +13,8 @@ else
   AAPT2_BIN="/data/data/com.termux/files/usr/bin/aapt2"
 fi
 
-if [ ! -f "$SDK_DIR/platforms/android-35/android.jar" ]; then
-  printf 'Android SDK Platform 35 not found under: %s\n' "$SDK_DIR" >&2
+if [ ! -f "$SDK_DIR/platforms/android-36/android.jar" ]; then
+  printf 'Android SDK Platform 36 not found under: %s\n' "$SDK_DIR" >&2
   exit 1
 fi
 
