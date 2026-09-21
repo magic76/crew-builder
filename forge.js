@@ -34,6 +34,7 @@ const modifyBtn = el('modifyBtn');
 const undoBtn = el('undoBtn');
 const versionBtn = el('versionBtn');
 const appMenuSheet = el('appMenuSheet');
+const versionHistorySheet = el('versionHistorySheet');
 const settingsSheet = el('settingsSheet');
 const modelSelect = el('modelSelect');
 const apiKeyInput = el('apiKeyInput');
@@ -42,16 +43,24 @@ const keyState = el('keyState');
 const toast = el('toast');
 
 migrateLocalStorage();
-let apps = loadApps();
+let apps = [];
 let activeAppId = localStorage.getItem(ACTIVE_KEY) || null;
 let busy = false;
 let initialized = false;
 
-function init() {
+async function init() {
   if (initialized) return;
   initialized = true;
   bindUi();
-  recoverInterruptedBuilds();
+  try {
+    apps = window.CrewStorage?.loadApps ? await window.CrewStorage.loadApps() : [];
+    apps = apps.map(normalizeAppRecord);
+    await recoverInterruptedBuilds();
+  } catch (error) {
+    initialized = false;
+    showToast(error.message || 'Could not open Crew Builder storage', true);
+    return;
+  }
   const selected = localStorage.getItem(MODEL_KEY) || 'auto';
   modelSelect.value = MODEL_LABELS[selected] ? selected : 'auto';
   updateModelUi();
@@ -82,6 +91,9 @@ function bindUi() {
   el('renameAppBtn')?.addEventListener('click', renameActiveApp);
   el('duplicateAppBtn')?.addEventListener('click', duplicateActiveApp);
   el('deleteAppBtn')?.addEventListener('click', deleteActiveApp);
+  el('historyAppBtn')?.addEventListener('click', openVersionHistory);
+  el('versionHistoryCloseBtn')?.addEventListener('click', closeVersionHistory);
+  versionHistorySheet?.addEventListener('click', (event) => { if (event.target === versionHistorySheet) closeVersionHistory(); });
   const pinButton = el('pinAppBtn');
   if (pinButton) pinButton.onclick = toggleActivePin;
   el('settingsBtn').addEventListener('click', openSettings);
@@ -115,21 +127,51 @@ function migrateLocalStorage() {
   }
 }
 
-function loadApps() {
-  try {
-    const current = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-    return Array.isArray(current) ? current : [];
-  } catch (_) {
-    return [];
+function normalizeAppRecord(app) {
+  const value = app && typeof app === 'object' ? app : {};
+  value.versions = Array.isArray(value.versions) ? value.versions : [];
+  if (!value.versions.length && value.html) {
+    value.versions.push({
+      id: createId(),
+      html: value.html,
+      request: value.originalPrompt || value.summary || 'Imported app',
+      model: value.model || 'auto',
+      spec: value.spec || null,
+      createdAt: value.updatedAt || value.createdAt || Date.now()
+    });
   }
+  value.versions = value.versions.map((version) => ({
+    ...version,
+    id: version?.id || createId(),
+    spec: version?.spec || null
+  }));
+  let index = Number.isInteger(value.versionIndex) ? value.versionIndex : -1;
+  if (index < 0 || index >= value.versions.length) {
+    const matching = value.html ? value.versions.map(v => v.html).lastIndexOf(value.html) : -1;
+    index = matching >= 0 ? matching : Math.max(0, value.versions.length - 1);
+  }
+  value.versionIndex = value.versions.length ? index : -1;
+  const current = value.versions[value.versionIndex];
+  if (current) {
+    value.html = current.html || value.html || '';
+    value.model = current.model || value.model;
+    value.spec = current.spec || value.spec || null;
+  }
+  return value;
 }
 
-function saveApps() { localStorage.setItem(STORAGE_KEY, JSON.stringify(apps)); }
-function recoverInterruptedBuilds() {
+async function saveApps() {
+  if (!window.CrewStorage?.saveApps) throw new Error('Crew Builder storage runtime is unavailable.');
+  await window.CrewStorage.saveApps(apps);
+}
+function saveAppsSoon() {
+  void saveApps().catch((error) => showToast(error.message || 'Could not save apps', true));
+}
+async function recoverInterruptedBuilds() {
   const hadBuildingApp = apps.some((app) => app.status === 'building');
   if (hadBuildingApp) {
     apps = apps.filter((app) => app.status !== 'building');
-    saveApps();
+    await saveApps();
   }
   if (activeAppId && !apps.some((app) => app.id === activeAppId)) {
     activeAppId = null;
@@ -228,6 +270,8 @@ function showHome() {
   activeAppId = null;
   localStorage.removeItem(ACTIVE_KEY);
   closeAppMenu();
+  closeVersionHistory();
+  window.CrewAI?.clearSensors?.();
   appView.hidden = true;
   homeView.hidden = false;
   preview.srcdoc = '';
@@ -242,7 +286,7 @@ function openApp(id) {
   homeView.hidden = true;
   appView.hidden = false;
   appTitle.textContent = app.name || 'Crew Builder';
-  undoBtn.disabled = !app.versions || app.versions.length < 2;
+  undoBtn.disabled = currentVersionIndex(app) <= 0;
   renderPreview(app);
 }
 
@@ -258,23 +302,32 @@ function closeModify() { modifySheet.hidden = true; }
 async function createApp(rawPrompt) {
   const request = String(rawPrompt || '').trim();
   if (!request || busy || !ensureGeminiReady()) return;
+  setBusy(true, 'Planning your app', 'Turning your request into a focused AppSpec…');
+  window.CrewBuilderUX?.setStep?.('prepare');
   const app = {
     id: createId(), name: deriveName(request), icon: '✦', summary: request, originalPrompt: request, status: 'building',
-    model: selectedModel(), html: '', versions: [], createdAt: Date.now(), updatedAt: Date.now()
+    model: selectedModel(), spec: null, html: '', versions: [], versionIndex: -1, createdAt: Date.now(), updatedAt: Date.now()
   };
   apps.unshift(app);
-  saveApps();
-  renderLibrary();
-  setBusy(true, 'Building your app', 'Gemini is building the first version…');
   try {
-    const result = await runForgeTurn(buildCreatePrompt(request), app.model);
-    applyForgeResult(app, result, request);
+    await saveApps();
+    renderLibrary();
+    try {
+      app.spec = await window.CrewAppSpec?.plan?.(request, app.model) || null;
+    } catch (error) {
+      console.warn('AppSpec planning fallback:', error);
+      app.spec = null;
+    }
+    setBusy(true, 'Building your app', 'Gemini is building the first version…');
+    window.CrewBuilderUX?.setStep?.('generate');
+    const result = await runForgeTurn(buildCreatePrompt(request, app.spec), app.model);
+    await applyForgeResult(app, result, request, app.spec);
     promptInput.value = '';
     openApp(app.id);
     showToast(`App built · ${shortModel(result.model)}`);
   } catch (error) {
     apps = apps.filter((item) => item.id !== app.id);
-    saveApps();
+    try { await saveApps(); } catch (_) {}
     renderLibrary();
     showToast(error.message || 'Build failed', true);
   } finally { setBusy(false); }
@@ -285,10 +338,20 @@ async function modifyApp(rawRequest) {
   const app = getActiveApp();
   if (!request || !app || busy || !ensureGeminiReady()) return;
   closeModify();
-  setBusy(true, 'Updating your app', 'Gemini is applying the change…');
+  setBusy(true, 'Planning the change', 'Updating the AppSpec before editing code…');
+  window.CrewBuilderUX?.setStep?.('prepare');
   try {
-    const result = await runForgeTurn(buildModifyPrompt(request, app), selectedModel());
-    applyForgeResult(app, result, request);
+    let nextSpec = app.spec || null;
+    try {
+      if (window.CrewAppSpec?.revise && app.spec) nextSpec = await window.CrewAppSpec.revise(request, app.spec, selectedModel());
+      else if (window.CrewAppSpec?.plan) nextSpec = await window.CrewAppSpec.plan(`${app.originalPrompt || app.summary || ''}\n\nRequested change: ${request}`, selectedModel());
+    } catch (error) {
+      console.warn('AppSpec revision fallback:', error);
+    }
+    setBusy(true, 'Updating your app', 'Gemini is applying the change…');
+    window.CrewBuilderUX?.setStep?.('generate');
+    const result = await runForgeTurn(buildModifyPrompt(request, app, nextSpec), selectedModel());
+    await applyForgeResult(app, result, request, nextSpec);
     modifyInput.value = '';
     openApp(app.id);
     showToast(`Changes applied · ${shortModel(result.model)}`);
@@ -330,7 +393,7 @@ function closeAppMenu() {
   if (appMenuSheet) appMenuSheet.hidden = true;
 }
 
-function renameActiveApp() {
+async function renameActiveApp() {
   const app = getActiveApp();
   if (!app) return;
   const copy = menuCopy();
@@ -338,7 +401,7 @@ function renameActiveApp() {
   if (!name || !name.trim()) return;
   app.name = name.trim();
   app.updatedAt = Date.now();
-  saveApps();
+  await saveApps();
   renderLibrary();
   appTitle.textContent = app.name;
   syncAppMenu();
@@ -346,7 +409,7 @@ function renameActiveApp() {
   showToast(copy.renamed);
 }
 
-function duplicateActiveApp() {
+async function duplicateActiveApp() {
   const app = getActiveApp();
   if (!app) return;
   const now = Date.now();
@@ -357,35 +420,37 @@ function duplicateActiveApp() {
   clone.updatedAt = now;
   clone.status = 'ready';
   clone.pinned = false;
+  clone.versions = (clone.versions || []).map((version) => ({ ...version, id: createId() }));
+  clone.versionIndex = Math.min(Math.max(0, clone.versionIndex ?? clone.versions.length - 1), Math.max(0, clone.versions.length - 1));
   apps.unshift(clone);
-  saveApps();
+  await saveApps();
   renderLibrary();
   closeAppMenu();
   showToast(menuCopy().copied);
 }
 
-function toggleActivePin() {
+async function toggleActivePin() {
   const app = getActiveApp();
   if (!app) return;
   app.pinned = !app.pinned;
   app.updatedAt = Date.now();
-  saveApps();
+  await saveApps();
   renderLibrary();
   syncAppMenu();
   showToast(app.pinned ? menuCopy().pinned : menuCopy().unpinned);
 }
 
-function deleteActiveApp() {
+async function deleteActiveApp() {
   const app = getActiveApp();
   if (!app) return;
   const copy = menuCopy();
   if (!window.confirm(copy.deleteConfirm)) return;
   const id = app.id;
   apps = apps.filter((item) => item.id !== id);
-  saveApps();
+  await saveApps();
   localStorage.removeItem(ACTIVE_KEY);
-  localStorage.removeItem(RUNTIME_PREFIX + id);
-  localStorage.removeItem(LEGACY_RUNTIME_PREFIX + id);
+  await window.CrewStorage?.deleteRuntime?.(id);
+  window.CrewAI?.clearSensors?.();
   closeAppMenu();
   if (activeAppId === id) showHome();
   else renderLibrary();
@@ -404,12 +469,16 @@ window.CrewBuilder = {
   duplicateActiveApp,
   toggleActivePin,
   deleteActiveApp,
+  openVersionHistory,
+  restoreVersion,
+  currentVersionIndex,
   updateBuildingProgress,
   syncAppMenu
 };
 
 async function runForgeTurn(prompt, model) {
   const first = await window.CrewAI.generate(prompt, model || 'auto');
+  window.CrewBuilderUX?.setStep?.('validate');
   const firstHtml = extractHtml(first.text);
   const issues = validateGeneratedHtml(firstHtml);
   if (!issues.length) return first;
@@ -438,6 +507,7 @@ function validateGeneratedHtml(html) {
     [/\bWebSocket\b/i, 'WebSocket is not allowed'],
     [/\blocalStorage\b|\bsessionStorage\b/i, 'Use crew.storage instead of browser storage'],
     [/\beval\s*\(|\bnew\s+Function\s*\(/i, 'Dynamic code execution is not allowed'],
+    [/\bCrewNative\b|\bCrewDevice\b|\bCrewHost\b/i, 'Direct native bridge access is not allowed'],
   ];
   forbidden.forEach(([pattern, message]) => { if (pattern.test(value)) issues.push(message); });
 
@@ -459,39 +529,98 @@ function validateGeneratedHtml(html) {
   return [...new Set(issues)].slice(0, 8);
 }
 
-function applyForgeResult(app, result, request) {
+async function applyForgeResult(app, result, request, spec = app.spec || null) {
   const html = extractHtml(result.text);
   if (!html) throw new Error('Gemini did not return a runnable HTML app.');
   app.html = html;
   app.status = 'ready';
   app.model = result.model || app.model || selectedModel();
+  app.spec = spec || null;
   app.updatedAt = Date.now();
   app.name = extractAppName(html) || app.name;
   app.versions = Array.isArray(app.versions) ? app.versions : [];
-  app.versions.push({ html, request, model: app.model, createdAt: Date.now() });
+  app.versions.push({
+    id: createId(),
+    html,
+    request,
+    model: app.model,
+    spec: app.spec ? JSON.parse(JSON.stringify(app.spec)) : null,
+    createdAt: Date.now()
+  });
   if (app.versions.length > MAX_VERSIONS) app.versions.splice(0, app.versions.length - MAX_VERSIONS);
-  saveApps();
+  app.versionIndex = app.versions.length - 1;
+  await saveApps();
+  window.CrewBuilderUX?.setStep?.('ready');
   renderLibrary();
 }
 
-function undoActiveApp() {
-  const app = getActiveApp();
-  if (!app || !app.versions || app.versions.length < 2 || busy) return;
-  app.versions.pop();
-  const previous = app.versions[app.versions.length - 1];
-  app.html = previous.html;
-  app.model = previous.model || app.model;
+function currentVersionIndex(app) {
+  if (!app?.versions?.length) return -1;
+  const index = Number.isInteger(app.versionIndex) ? app.versionIndex : app.versions.length - 1;
+  return Math.min(Math.max(index, 0), app.versions.length - 1);
+}
+
+async function restoreVersion(app, index, toastMessage = '') {
+  if (!app?.versions?.[index] || busy) return;
+  const version = app.versions[index];
+  app.versionIndex = index;
+  app.html = version.html;
+  app.model = version.model || app.model;
+  app.spec = version.spec || app.spec || null;
   app.updatedAt = Date.now();
-  saveApps();
+  await saveApps();
   openApp(app.id);
-  showToast('Restored previous version');
+  renderVersionHistory();
+  if (toastMessage) showToast(toastMessage);
+}
+
+async function undoActiveApp() {
+  const app = getActiveApp();
+  const index = currentVersionIndex(app);
+  if (!app || index <= 0 || busy) return;
+  await restoreVersion(app, index - 1, 'Restored previous version');
+}
+
+function openVersionHistory() {
+  const app = getActiveApp();
+  if (!app || !versionHistorySheet) return;
+  closeAppMenu();
+  renderVersionHistory();
+  versionHistorySheet.hidden = false;
+}
+
+function closeVersionHistory() {
+  if (versionHistorySheet) versionHistorySheet.hidden = true;
+}
+
+function renderVersionHistory() {
+  const app = getActiveApp();
+  const list = el('versionHistoryList');
+  if (!app || !list) return;
+  const current = currentVersionIndex(app);
+  const versions = Array.isArray(app.versions) ? app.versions : [];
+  list.innerHTML = versions.map((version, index) => {
+    const selected = index === current;
+    const date = new Date(version.createdAt || Date.now()).toLocaleString();
+    const request = String(version.request || app.originalPrompt || '').replace(/\s+/g, ' ').trim();
+    return `<button class="version-row${selected ? ' active' : ''}" data-version-index="${index}"${selected ? ' disabled' : ''}>
+      <span><strong>v${index + 1}${selected ? ' · Current' : ''}</strong><small>${escapeHtml(date)}</small></span>
+      <em>${escapeHtml(request.slice(0, 90) || 'Generated version')}</em>
+    </button>`;
+  }).reverse().join('');
+  list.querySelectorAll('[data-version-index]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const index = Number(button.dataset.versionIndex);
+      await restoreVersion(app, index, `Restored v${index + 1}`);
+    });
+  });
 }
 
 function showVersionInfo() {
   const app = getActiveApp();
   if (!app) return;
-  const count = Math.max(1, app.versions?.length || 1);
-  showToast(`Version ${count} · ${shortModel(app.model)}`);
+  const index = currentVersionIndex(app);
+  showToast(`Version ${index + 1} of ${Math.max(1, app.versions?.length || 1)} · ${shortModel(app.model)}`);
 }
 
 function renderPreview(app) {
