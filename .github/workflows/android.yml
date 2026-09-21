@@ -14,12 +14,16 @@ jobs:
           node-version: '22'
       - name: Check Builder JavaScript
         run: |
+          node --check storage-runtime.js
           node --check forge.js
           node --check native-adapter.js
           node --check live-runtime.js
           node --check ui-runtime.js
           node --check builder-ux.js
           node --check builder-next.js
+          node --check language-prompts.js
+          node --check appspec-runtime.js
+          node scripts/check-contracts.mjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
