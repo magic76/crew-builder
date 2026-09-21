@@ -268,15 +268,17 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     private fun emitHostEvent(channel: String, payloadJson: String) {
-        val proxy = hostReplyProxy ?: return
         val payload = try { JSONObject(payloadJson) } catch (_: Exception) { JSONObject().put("value", payloadJson) }
-        proxy.postMessage(
-            JSONObject()
-                .put("type", "event")
-                .put("channel", channel)
-                .put("payload", payload)
-                .toString()
-        )
+        runOnUiThread {
+            val proxy = hostReplyProxy ?: return@runOnUiThread
+            proxy.postMessage(
+                JSONObject()
+                    .put("type", "event")
+                    .put("channel", channel)
+                    .put("payload", payload)
+                    .toString()
+            )
+        }
     }
 
     private fun setSensorSubscription(sensor: String, enabled: Boolean) {
