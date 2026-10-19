@@ -37,3 +37,4 @@ jobs:
         with:
           name: crew-builder-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
